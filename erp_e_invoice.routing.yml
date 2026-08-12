@@ -1,0 +1,181 @@
+# Hóa đơn đầu ra.
+erp_e_invoice.e_invoice_list_out:
+  path: '/accountant/e-invoice-out'
+  defaults:
+    _title: 'List invoice out'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceOutController::listInvoiceOut'
+  requirements:
+    _permission: "administer invoice"
+
+erp_e_invoice.e_invoice_tempaltes:
+  path: '/accountant/e-invoice-tempaltes/{company_id}'
+  defaults:
+    _title: 'Issue invoice out'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceOutController::getTemplates'
+  requirements:
+    _permission: "administer invoice"
+
+erp_e_invoice.e_invoice_create:
+  path: '/accountant/create-invoice/{order_id}'
+  defaults:
+    _title: 'Create invoice'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceOutController::createInvoice'
+  methods: [POST]
+  requirements:
+    _permission: 'administer invoice'
+    _csrf_token: 'TRUE'
+
+erp_e_invoice.e_invoice_import:
+  path: '/accountant/import-invoice'
+  defaults:
+    _title: 'Import invoice out'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceOutController::importInvoice'
+  methods: [POST]
+  requirements:
+    _permission: "administer invoice"
+    _csrf_token: 'TRUE'
+
+erp_e_invoice.e_invoice_preview:
+  path: '/accountant/preview-invoice'
+  defaults:
+    _title: 'Preview invoice'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceOutController::previewInvoice'
+  methods: [POST]
+  requirements:
+    _permission: 'administer invoice'
+    _csrf_token: 'TRUE'
+
+erp_e_invoice.e_invoice_issue:
+  path: '/accountant/issue-invoice'
+  defaults:
+    _title: 'Issue invoice out'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceOutController::issueInvoice'
+  methods: [POST]
+  requirements:
+    _permission: "administer invoice"
+    _csrf_token: 'TRUE'
+
+erp_e_invoice.e_invoice_status:
+  path: '/accountant/status-invoice'
+  defaults:
+    _title: 'Status invoice'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceOutController::statusInvoice'
+  methods: [POST]
+  requirements:
+    _permission: 'administer invoice'
+    _csrf_token: 'TRUE'
+
+erp_e_invoice.e_invoice_replate:
+  path: '/accountant/replate-invoice'
+  defaults:
+    _title: 'Replate invoice out'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceOutController::replateInvoice'
+  methods: [POST]
+  requirements:
+    _permission: "administer invoice"
+    _csrf_token: 'TRUE'
+
+erp_e_invoice.e_invoice_pdf_invoice:
+  path: '/accountant/pdf-invoice/{uuid}'
+  defaults:
+    _title: 'PDF invoice'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceOutController::pdfOutputInvoice'
+  requirements:
+    _permission: 'administer invoice'
+    _csrf_token: 'TRUE'
+
+erp_e_invoice.e_invoice_search_items:
+  path: '/accountant/invoice-search-items'
+  defaults:
+    _title: 'Search items'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceOutController::searchItems'
+  methods: [POST]
+  requirements:
+    _permission: 'administer invoice'
+
+# Hóa đơn đầu vào.
+erp_e_invoice.e_invoice_list_in:
+  path: '/accountant/e-invoice-in'
+  defaults:
+    _title: 'List invoice in'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceInController::listInvoiceIn'
+  requirements:
+    _permission: "administer invoice"
+
+erp_e_invoice.e_invoice_modified:
+  path: '/accountant/modified-invoice'
+  defaults:
+    _title: 'Modified invoice'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceInController::modifiedInvoice'
+  methods: [POST]
+  requirements:
+    _permission: 'administer invoice'
+    _csrf_token: 'TRUE'
+
+erp_e_invoice.e_invoice_accoutant:
+  path: '/accountant/accoutant-invoice'
+  defaults:
+    _title: 'Accoutant invoice'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceInController::accountingInvoice'
+  methods: [POST]
+  requirements:
+    _permission: 'administer invoice'
+    _csrf_token: 'TRUE'
+
+erp_e_invoice.e_invoice_file_invoice:
+  path: '/accountant/file-invoice/{type}/{uuid}'
+  defaults:
+    _title: 'File invoice'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceInController::downloadFileInputInvoice'
+  requirements:
+    _permission: 'administer invoice'
+    _csrf_token: 'TRUE'
+
+# Khác.
+erp_e_invoice.e_invoice_update_items:
+  path: '/accountant/invoice/{uuid}'
+  defaults:
+    _form: '\Drupal\erp_e_invoice\Form\UpdateInvoiceItemsForm'
+    _title: 'Update items'
+  requirements:
+    _permission: 'administer invoice'
+
+erp_e_invoice.e_invoice_list_import:
+  path: '/accountant/e-invoice-import'
+  defaults:
+    _title: 'List invoice import'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceWarehouseController::listInvoiceImport'
+  requirements:
+    _permission: "administer invoice"
+
+erp_e_invoice.e_invoice_detail_import:
+  path: '/accountant/e-invoice-detail-import/{id}'
+  defaults:
+    _title: 'List invoice import'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceWarehouseController::detailInvoiceImport'
+  requirements:
+    _permission: "administer invoice"
+
+erp_e_invoice.e_invoice_list_export:
+  path: '/accountant/e-invoice-export'
+  defaults:
+    _title: 'List invoice export'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceWarehouseController::listInvoiceExport'
+  requirements:
+    _permission: "administer invoice"
+
+erp_e_invoice.e_invoice_detail_export:
+  path: '/accountant/e-invoice-detail-export/{id}'
+  defaults:
+    _title: 'List invoice export'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceWarehouseController::detailInvoiceExport'
+  requirements:
+    _permission: "administer invoice"
+
+erp_e_invoice.e_invoice_list_warehouse:
+  path: '/accountant/e-invoice-warehouse'
+  defaults:
+    _title: 'List invoice warehouse'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceWarehouseController::listWarehouse'
+  requirements:
+    _permission: "administer invoice"

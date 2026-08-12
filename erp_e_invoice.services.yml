@@ -1,0 +1,12 @@
+services:
+  erp_e_invoice.invoice_service:
+    class: Drupal\erp_e_invoice\InvoiceService
+    arguments:
+      - '@entity_type.manager'
+      - '@current_user'
+      - '@messenger'
+      - '@e_invoice.get_config'
+      - '@database'
+      - '@keyvalue'
+      - '@logger.factory'
+

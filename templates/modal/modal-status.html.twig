@@ -1,0 +1,33 @@
+<div title="Status invoice" class="modal fade" id="paramsInvoiceModal" tabindex="-1" aria-hidden="true">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h1 class="mb-0 fs-5">{{ "Status invoice"|t }}</h1>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+			</div>
+			<form method="POST" action="{{ path("erp_e_invoice.e_invoice_status") }}">
+				<div class="modal-body">
+					<div class="mb-3">
+						<label for="withCode" class="form-label">{{ "Does the invoice have a code?"|t }}</label>
+						<select id="withCode" name="withCode" class="form-control">
+							<option value="true">{{ "Status yes"|t }}</option>
+							<option value="false">{{ "Status no"|t }}</option>
+						</select>
+					</div>
+					<div class="mb-3">
+						<label for="calcu" class="form-label">{{ "Receipts issued from cash registers?"|t }}</label>
+						<select id="calcu" name="calcu" class="form-control">
+							<option value="false">{{ "Status no"|t }}</option>
+							<option value="true">{{ "Status yes"|t }}</option>
+						</select>
+					</div>
+					<input type="hidden" id="invoice-uuid" name="invoice-uuid"/>
+					<input type="hidden" name="destination" value="{{filter.destination}}"/>
+				</div>
+				<div class="modal-footer">
+					<button type="submit" class="btn btn-primary">{{ "Action"|t }}</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>

@@ -1,0 +1,119 @@
+<?php
+
+/**
+ * @file
+ * Hooks provided by the erp_e_invoice module.
+ */
+
+use Drupal\Core\Form\FormStateInterface;
+
+/**
+ * Implements hook_theme().
+ */
+function erp_e_invoice_theme() {
+  return [
+    'list_input_invoice' => [
+      'template' => 'list-input-invoice',
+      'variables' => [
+        'data' => [],
+        'filter' => [],
+      ],
+    ],
+    'list_output_invoice' => [
+      'template' => 'list-output-invoice',
+      'variables' => [
+        'data' => [],
+        'filter' => [],
+      ],
+    ],
+    'list_import_invoice' => [
+      'template' => 'list-import-invoice',
+      'variables' => [
+        'data' => [],
+        'filter' => [],
+      ],
+    ],
+    'list_export_invoice' => [
+      'template' => 'list-export-invoice',
+      'variables' => [
+        'data' => [],
+        'filter' => [],
+      ],
+    ],
+    'list_warehouse_invoice' => [
+      'template' => 'list-warehouse-invoice',
+      'variables' => [
+        'data' => [],
+        'filter' => [],
+      ],
+    ],
+    'detail_import_invoice' => [
+      'template' => 'detail-import-invoice',
+      'variables' => [
+        'data' => [],
+      ]
+    ],
+    'detail_export_invoice' => [
+      'template' => 'detail-export-invoice',
+      'variables' => [
+        'data' => [],
+      ]
+    ]
+  ];
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for invoice_output_invoices_add_form.
+ */
+function erp_e_invoice_form_invoice_output_invoices_add_form_alter(array &$form, FormStateInterface $form_state, $form_id) {
+  erp_e_invoice_attach_item_search($form);
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for invoice_output_invoices_edit_form.
+ */
+function erp_e_invoice_form_invoice_output_invoices_edit_form_alter(array &$form, FormStateInterface $form_state, $form_id) {
+  erp_e_invoice_attach_item_search($form);
+}
+
+/**
+ * Thêm ô tìm kiếm hàng hoá, dịch vụ phía trên bảng dòng hóa đơn.
+ *
+ * Base form id của entity invoice là "invoice_form" chứ không kèm bundle, nên
+ * phải gắn theo từng FORM_ID cụ thể thay vì BASE_FORM_ID.
+ *
+ * @param array $form
+ *   Mảng form hóa đơn đầu ra.
+ */
+function erp_e_invoice_attach_item_search(array &$form) {
+  if (!isset($form["field_invoice_items"])) {
+    return;
+  }
+
+  $form['field_invoice_items']['#type'] = 'container';
+  $form['field_invoice_items']['#attributes']['class'][] = 'd-flex';
+  $form['field_invoice_items']['#attributes']['class'][] = 'flex-column-reverse';
+
+  $form["field_invoice_items"]['choose_item_wrapper'] = [
+    '#type' => 'container',
+    '#attributes' => [
+      'class' => ['p-2', 'bg-white'],
+    ],
+  ];
+
+  $form["field_invoice_items"]['choose_item_wrapper']['choose_item_global'] = [
+    '#type' => 'textfield',
+    '#placeholder' => t('Search for goods and services'),
+    '#autocomplete_route_name' => 'entity_reference_modal.autocomplete',
+    '#autocomplete_route_parameters' => [
+      'selection_settings_key' => \Drupal::service('erp_e_invoice.invoice_service')
+        ->getAutocompleteSettingsKey(),
+    ],
+    '#attributes' => [
+      'class' => ['form-control', 'mt-1'],
+    ],
+    '#attached' => [
+      'library' => ['erp_e_invoice/e_invoice_custom'],
+    ],
+  ];
+}

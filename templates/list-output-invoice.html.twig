@@ -1,0 +1,217 @@
+<div class="list-invoice d-flex flex-column h-100">
+	<div class="p-2 header-wrapper">
+		<div class="d-flex justify-content-between mb-3">
+			<form method="GET" class="d-flex">
+				<div class="d-flex">
+					<input type="date" id="start-date" name="start_date" class="search-data form-control w-auto me-1" value="{{ filter.date.start }}"/>
+					<input type="date" id="end-date" name="end_date" class="search-data form-control w-auto me-1" value="{{ filter.date.end }}"/>
+				</div>
+				<select name="status" class="form-control me-1" style="width: 150px">
+					<option value="">{{ "Select status"|t }}</option>
+					{% for status_id, status_name in filter.option_status %}
+						<option value="{{ status_id }}" {% if filter.status == status_id %} selected {% endif %}>{{ status_name }}</option>
+					{% endfor %}
+				</select>
+				<select name="company_id" class="form-control">
+					<option value="">{{ "Select Company"|t }}</option>
+					{% for company_id, company_name in filter.option_company %}
+						<option value="{{ company_id }}" {% if filter.company_id == company_id %} selected {% endif %}>{{ company_name }}</option>
+					{% endfor %}
+				</select>
+				<button type="submit" class="btn btn-primary ms-1" style="white-space: nowrap;">
+					<i class="bi bi-search me-1"></i>
+				</button>
+			</form>
+			<div class="d-flex align-items-start">
+				<button data-search-date="last_week" class="btn btn-primary btn-search-date ms-1 text-nowrap">{{ "Last Week"|t }}</button>
+				<button data-search-date="last_month" class="btn btn-primary btn-search-date ms-1 text-nowrap">{{ "Last Month"|t }}</button>
+				<button data-search-date="full_date" class="btn btn-primary btn-search-date ms-1 text-nowrap">{{ "Full date"|t }}</button>
+			</div>
+		</div>
+		<div>
+			<a class="btn btn-warning ms-1 text-nowrap" href="{{ path('<front>') }}invoice/add/output_invoices?destination={{ path('<front>') }}accountant/e-invoice-out">{{ "Add invoice"|t }}</a>
+			<a type="button" class="btn btn-info ms-1 text-nowrap" data-bs-toggle="modal" data-bs-target="#importInvoiceModal">
+				{{ "Import XML"|t }}
+			</a>
+			<a type="button" class="btn-issue-multiple btn btn-success ms-1 text-nowrap" data-bs-toggle="modal" data-bs-target="#configInvoiceModal"
+				data-company-id="{{ filter.company_id }}" data-routing="{{ path("erp_e_invoice.e_invoice_issue") }}">
+				{{ "Issue multiple invoices"|t }}
+			</a>
+			<button class="btn btn-secondary ms-1 text-nowrap btn-export">{{ "Export invoice"|t }}  
+				{% if filter.count_export > 0 %}
+					<span class="d-inline-flex px-2 border rounded-pill fw-bold">{{ filter.count_export }}</span>
+				{% endif %}
+			</button>
+		</div>
+	</div>
+	<div class="flex-grow-1 overflow-hidden p-2 bg-white">
+		<div class="d-flex flex-column h-100 text-center">
+			<h4 class="text-uppercase fw-bold my-2" id="title-report">
+				{{ "List of output invoices"|t }}
+			</h4>
+			<div class="flex-grow-1 overflow-auto h-100">
+				<table class="table table-hover table-bordered table-striped">
+					<thead class="text-center">
+						<tr>
+							<th><input type="checkbox" id="select-invoice-all"/></th>
+							<th>{{ "Title"|t }}</th>
+							<th>{{ "Buyer"|t }}</th>
+							<th>{{ "Tax code"|t }}</th>
+							<th>{{ "Amount without vat"|t }}</th>
+							<th>{{ "Vat amount"|t }}</th>
+							<th>{{ "Discount amount"|t }}</th>
+							<th>{{ "Total amount"|t }}</th>
+							<th>{{ "Invoice status"|t }}</th>
+							<th>{{ "Action"|t }}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{% for item in data %}
+							<tr>
+								<td class="text-center">
+									{% if item.invoice_issue == '1' %}
+										<p class="d-inline-block m-0 px-2 py-1 rounded-pill text-white bg-success">{{ item.invoice_no }}</p>
+										<small class="d-block mt-1">{{ item.invoice_date| date("d/m/Y") }}</small>
+									{% else %}
+										{% if item.invoice_company_id == filter.company_id %}
+											<input type="checkbox" name="select-invoice" value="{{ item.uuid }}" class="select-invoice mb-2" />
+										{% endif %}
+										<small class="px-2 py-1 text-white text-nowrap rounded-pill bg-danger">{{ "Not yet issued"|t }}</small>
+									{% endif %}
+								</td>
+								<td class="text-start">{{ item.invoice_name }}</td>
+								<td>
+									<p class="mb-0 text-start">{{ item.invoice_buyer }}</p>
+								</td>
+								<td>
+									<p class="mb-0 text-center">{{ item.invoice_buyer_taxcode }}</p>
+								</td>
+								<td class="text-end">{{ item.invoice_amount_without_vat|number_format(0, ",", ".") }}</td>
+								<td class="text-end">{{ item.invoice_vat_amount|number_format(0, ",", ".") }}</td>
+								<td class="text-end">{{ item.invoice_discount_amount|number_format(0, ",", ".") }}</td>
+								<td class="text-end">{{ item.invoice_total_amount|number_format(0, ",", ".") }}</td>
+								<td class="text-center">{{ item.invoice_status.label }}</td>
+								<td>
+									<div class="dropdown">
+										<button class="btn btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+											<i class="bi bi-list"></i>
+										</button>
+										<ul class="dropdown-menu">
+											{# Xem chi tiết #}
+											<li>
+												<a href="{{ path('<front>') }}invoice-uuid/{{ item.uuid }}" class="dropdown-item use-ajax"
+													data-dialog-type="modal" data-dialog-options="{&quot;width&quot;:&quot;70%&quot;,&quot;title&quot;:&quot;&quot;}">
+													{{ "Detail"|t }}
+												</a>
+											</li>
+											{# Bản thảo: Sửa + Xem PDF + Phát hành #}
+											{% if item.invoice_status.value == 0 %}
+												<li>
+													<a href="{{ path('<front>') }}invoice-uuid/{{ item.uuid }}/edit?destination={{ filter.destination }}" class="btn-config-invoice dropdown-item">
+														{{ "Edit invoice"|t }}
+													</a>
+												</li>
+												<li>
+													<a type="button" class="btn-config-invoice dropdown-item" data-bs-toggle="modal" data-bs-target="#configInvoiceModal"
+														data-invoice-uuid="{{ item.uuid }}" data-company-id="{{ item.invoice_company_id }}" data-routing="{{ path("erp_e_invoice.e_invoice_preview") }}">
+														{{ "Preview PDF"|t }}
+													</a>
+												</li>
+												<li>
+													<a type="button" class="btn-config-invoice dropdown-item" data-bs-toggle="modal" data-bs-target="#configInvoiceModal"
+														data-invoice-uuid="{{ item.uuid }}" data-company-id="{{ item.invoice_company_id }}" data-routing="{{ path("erp_e_invoice.e_invoice_issue") }}">
+														{{ "Issue invoice"|t }}
+													</a>
+												</li>
+											{% else %}
+												{# Xử lý nếu không phải hóa đơn từ XML #}
+												{%  if item.invoice_xml != '1' %}
+													{# Hóa đơn chưa phát hành thì xem trước PDF #}
+													{% if item.invoice_issue == '0' %}
+														<li>
+															<a type="button" class="btn-config-invoice dropdown-item" data-bs-toggle="modal" data-bs-target="#configInvoiceModal"
+																data-invoice-uuid="{{ item.uuid }}" data-company-id="{{ item.invoice_company_id }}" data-routing="{{ path("erp_e_invoice.e_invoice_preview") }}">
+																{{ "Preview PDF"|t }}
+															</a>
+														</li>
+													{% else %}
+														{# Có PDF thì xem hoặc tải xuống #}
+														{% if item.invoice_pdf is not empty %}
+															<li>
+																<a class="dropdown-item" href="{{ item.invoice_pdf }}" target="_blank">
+																	{{ "View PDF"|t }}
+																</a>
+															</li>
+														{% else %}
+															<li>
+																<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_pdf_invoice", {"uuid": item.uuid} , {"query" : {"destination" : filter.destination}}) }}">
+																	{{ "Download PDF"|t }}
+																</a>
+															</li>
+														{% endif %}
+													{% endif %}
+													{# Hóa đơn gốc mới có tạo bản thay thế #}
+													{% if item.invoice_status.value == 1 %}
+														<li>
+															<a href="{{ path('<front>') }}invoice-uuid/{{ item.uuid }}/replace?destination={{ filter.destination }}" class="btn-config-invoice dropdown-item">
+																{{ "Replace invoice"|t }}
+															</a>
+														</li>
+													{% endif %}
+													{# Hóa đơn thay thế chưa phát hành: Sửa + Phát hành lại #}
+													{% if item.invoice_status.value == 2 and item.invoice_issue == '0' %}
+														<li>
+															<a href="{{ path('<front>') }}invoice-uuid/{{ item.uuid }}/edit?destination={{ filter.destination }}" class="btn-config-invoice dropdown-item">
+																{{ "Edit invoice"|t }}
+															</a>
+														</li>
+														<li>
+															<a type="button" class="btn-config-invoice dropdown-item" data-bs-toggle="modal" data-bs-target="#configInvoiceModal"
+																data-invoice-uuid="{{ item.uuid }}" data-company-id="{{ item.invoice_company_id }}" data-routing="{{ path("erp_e_invoice.e_invoice_replate") }}">
+																{{ "Issue replace invoice"|t }}
+															</a>
+														</li>
+													{% endif %}
+													{# Hóa đơn thay thế đã phát hành #}
+													{% if item.invoice_status.value == 2 and item.invoice_issue != '0' %}
+														<li>
+															<a type="button" class="btn-params-invoice dropdown-item" data-bs-toggle="modal"
+																data-bs-target="#paramsInvoiceModal" data-invoice-uuid="{{ item.uuid }}">
+																{{ "Status invoice"|t }}
+															</a>
+														</li>
+													{% endif %}
+												{% endif %}
+											{% endif %}
+											{# Nhân bản hóa đơn #}
+											<li>
+												<a href="{{ path('<front>') }}invoice-uuid/{{ item.uuid }}/duplicate?destination={{ filter.destination }}" class="btn-config-invoice dropdown-item">
+													{{ "Duplicate invoice"|t }}
+												</a>
+											</li>
+											{# Tạo phiếu xuất hàng cho hóa đơn gốc, thay thế, điều chỉnh #}
+											{% if item.invoice_status.value in [1, 2, 3] and item.invoice_export != 1 %}
+												<li>
+													<a href="{{ path('<front>') }}accountant/invoice/{{ item.uuid }}" class="dropdown-item use-ajax"
+														data-dialog-type="modal" data-dialog-options="{&quot;width&quot;:&quot;70%&quot;,&quot;title&quot;:&quot;&quot;}">
+														{{ "Create export"|t }}
+													</a>
+												</li>
+											{% endif %}
+										</ul>
+									</div>
+								</td>
+							</tr>
+						{% endfor %}
+					</tbody>
+				</table>
+			</div>
+			{{ filter.pager }}
+		</div>
+	</div>
+</div>
+
+<!-- Modal -->
+{{ include('@erp_e_invoice/templates/modal/modal-template.html.twig') }}
+{{ include('@erp_e_invoice/templates/modal/modal-import.html.twig') }}
+{{ include('@erp_e_invoice/templates/modal/modal-status.html.twig') }}

@@ -1,0 +1,38 @@
+<div class="list-invoice d-flex flex-column h-100">
+	<div class="flex-grow-1 overflow-hidden p-2 bg-white">
+		<div class="d-flex flex-column h-100 text-center">
+			<div class="flex-grow-1 overflow-auto h-100">
+				<table class="table table-hover table-bordered table-striped">
+					<thead class="text-center">
+						<tr>
+							<th>{{ "Nº"|t }}</th>
+							<th>{{ "Date export"|t }}</th>
+							<th>{{ "Quantity"|t }}</th>
+							<th>{{ "Price"|t }}</th>
+							<th>{{ "Title export"|t }}</th>
+							<th>{{ "Title inoice"|t }}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{% for item in data %}
+							<tr>
+								<td class="text-center">{{ loop.index }}</td>
+								<td class="text-center">
+									{{ item.date }}
+								</td>
+								<td  class="text-center">{{ item.quantity|number_format(0, ",", ".") }}</td>
+								<td  class="text-center">{{ item.price|number_format(0, ",", ".") }}</td>
+								<td>
+									<a class="list-unstyled" href="{{ path('<front>') }}node-uuid/{{ item.export_uuid }}" target="_blank">{{ item.export_title }}</a>
+								</td>
+								<td>
+									<a class="list-unstyled" href="{{ path('<front>') }}invoice-uuid/{{ item.invoice_uuid }}" target="_blank">{{ item.invoice_title }}</a>
+								</td>
+							</tr>
+						{% endfor %}
+					</tbody>
+				</table>
+			</div>
+		</div>
+	</div>
+</div>

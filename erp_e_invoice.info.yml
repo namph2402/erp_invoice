@@ -1,0 +1,11 @@
+name: 'ERPCons invoice'
+description: '[ERPCons] Electronic invoice integration'
+type: module
+package: Invoice
+core_version_requirement: ^9 || ^10 || ^11
+dependencies:
+  - drupal:node
+  - drupal:taxonomy
+  - drupal:user
+  - paragraphs:paragraphs
+  - e_invoice:e_invoice

@@ -1,0 +1,81 @@
+<div class="list-invoice d-flex flex-column h-100">
+	<div class="p-2 header-wrapper">
+		<div class="d-flex justify-content-between mb-3">
+			<form method="GET" class="d-flex">
+				<div class="d-flex">
+					<input type="date" id="start-date" name="start_date" class="search-data form-control w-auto me-1" value="{{ filter.date.start }}"/>
+					<input type="date" id="end-date" name="end_date" class="search-data form-control w-auto me-1" value="{{ filter.date.end }}"/>
+				</div>
+				<select name="company_id" class="form-control">
+					<option value="">{{ "Select Company"|t }}</option>
+					{% for company_id, company_name in filter.option_company %}
+						<option value="{{ company_id }}" {% if filter.company_id == company_id %} selected {% endif %}>{{ company_name }}</option>
+					{% endfor %}
+				</select>
+				<button type="submit" class="btn btn-primary ms-1" style="white-space: nowrap;">
+					<i class="bi bi-search me-1"></i>
+				</button>
+			</form>
+			<div class="d-flex align-items-start">
+				<button data-search-date="last_week" class="btn btn-primary btn-search-date ms-1 text-nowrap">{{ "Last Week"|t }}</button>
+				<button data-search-date="last_month" class="btn btn-primary btn-search-date ms-1 text-nowrap">{{ "Last Month"|t }}</button>
+				<button data-search-date="full_date" class="btn btn-primary btn-search-date ms-1 text-nowrap">{{ "Full date"|t }}</button>
+			</div>
+		</div>
+	</div>
+	<div class="flex-grow-1 overflow-hidden p-2 bg-white">
+		<div class="d-flex flex-column h-100 text-center">
+			<h4 class="text-uppercase fw-bold my-2" id="title-report">
+				{{ "List of export invoices"|t }}
+			</h4>
+			<div class="flex-grow-1 overflow-auto h-100">
+				<table class="table table-hover table-bordered table-striped">
+					<thead class="text-center">
+						<tr>
+							<th>{{ "Nº"|t }}</th>
+							<th>{{ "Title"|t }}</th>
+							<th>{{ "Date export"|t }}</th>
+							<th class="w-15">{{ "Buyer"|t }}</th>
+							<th>{{ "Company"|t }}</th>
+							<th>{{ "Total vat"|t }}</th>
+							<th>{{ "Total amount"|t }}</th>
+							<th>{{ "Invoice"|t }}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{% for item in data %}
+							<tr>
+								<td class="text-center">{{ loop.index }}</td>
+								<td class="text-start">
+									<a href="{{ path('<front>') }}node-uuid/{{ item.uuid }}" class="list-unstyled" target="_blank">{{ item.title }}</a>							
+								</td>
+								<td class="text-center">
+									{{ item.date }}
+								</td>
+								<td class="text-start">
+									{{ item.supplier }}
+								</td>
+								<td class="text-start">
+									{{ item.company }}
+								</td>
+								<td class="text-center">
+									{{ item.total_vat|number_format(0, ",", ".") }}
+								</td>
+								<td class="text-center">
+									{{ item.total_amount|number_format(0, ",", ".") }}
+								</td>
+								<td class="text-start">
+									<a href="{{ path('<front>') }}invoice-uuid/{{ item.invoice_uuid }}" class="dropdown-item use-ajax"
+										data-dialog-type="modal" data-dialog-options="{&quot;width&quot;:&quot;70%&quot;,&quot;title&quot;:&quot;&quot;}">
+										{{ item.invoice_title }}
+									</a>
+								</td>
+							</tr>
+						{% endfor %}
+					</tbody>
+				</table>
+			</div>
+			{{ filter.pager }}
+		</div>
+	</div>
+</div>

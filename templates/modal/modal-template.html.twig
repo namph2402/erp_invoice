@@ -1,0 +1,32 @@
+<div title="Template invoice" class="modal fade" id="configInvoiceModal" tabindex="-1" aria-hidden="true">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h1 class="mb-0 fs-5">{{ "Template invoice"|t }}</h1>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+			</div>
+			<form id="config-form" method="POST">
+				<div class="modal-body">
+					<div class="mb-3">
+						<select id="company_template" class="form-control" disabled>
+							<option value="">{{ "Select Company"|t }}</option>
+							{% for company_id, company_name in filter.option_company %}
+								<option value="{{ company_id }}" {% if filter.company_id == company_id %} selected {% endif %}>{{ company_name }}</option>
+							{% endfor %}
+						</select>
+					</div>
+					<div class="mb-3">
+						<select id="template-value" name="template-value" class="form-control" required></select>
+						<small id="template-message" class="form-text text-danger"></small>
+					</div>
+					<input type="hidden" id="invoice-uuid" name="invoice-uuid"/>
+					<input type="hidden" id="invoice-get-file" name="invoice-get-file"/>
+					<input type="hidden" name="destination" value="{{filter.destination}}"/>
+				</div>
+				<div class="modal-footer">
+					<button type="submit" class="btn btn-primary">{{ "Action"|t }}</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>

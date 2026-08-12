@@ -1,0 +1,22 @@
+<div title="Import XML invoice" class="modal fade" id="importInvoiceModal" tabindex="-1" aria-hidden="true" >
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h1 class="mb-0 fs-5">{{ "Import invoice"|t }}</h1>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+			</div>
+			<form id="config-form" method="POST" enctype="multipart/form-data" action="{{ path("erp_e_invoice.e_invoice_import") }}">
+				<div class="modal-body">
+					<div class="mb-3">
+						<input class="form-control" type="file" name="xml_files[]" multiple accept=".xml, application/xml, text/xml"/>
+					</div>
+					<input type="hidden" id="invoice-uuid" name="invoice-uuid"/>
+					<input type="hidden" name="destination" value="{{filter.destination}}"/>
+				</div>
+				<div class="modal-footer">
+					<button type="submit" class="btn btn-primary">{{ "Action"|t }}</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>

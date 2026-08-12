@@ -1,0 +1,32 @@
+e_invoice:
+  css:
+    theme:
+      css/e-invoice.css: {}
+  js:
+    js/e-invoice.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - core/once
+    - core/drupalSettings
+
+e_invoice_custom:
+  css:
+    theme:
+      css/e-invoice.css: {}
+  js:
+    js/e-invoice-form.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - core/drupalSettings
+    - core/once
+
+e_invoice_update:
+  js:
+    js/e-invoice-update.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - core/drupalSettings
+    - core/once

@@ -1,0 +1,52 @@
+<div class="list-invoice d-flex flex-column h-100">
+	<div class="flex-grow-1 overflow-hidden p-2 bg-white">
+		<div class="d-flex flex-column h-100 text-center">
+			<h4 class="text-uppercase fw-bold my-2" id="title-report">
+				{{ "List of warehouse invoices"|t }}
+			</h4>
+			<div class="flex-grow-1 overflow-auto h-100">
+				<table class="table table-hover table-bordered table-striped">
+					<thead class="text-center">
+						<tr>
+							<th>{{ "Nº"|t }}</th>
+							<th class="w-25">{{ "Title"|t }}</th>
+							<th>{{ "Code"|t }}</th>
+							<th>{{ "Quantity"|t }}</th>
+							<th>{{ "Unit"|t }}</th>
+							<th>{{ "Tax"|t }}</th>
+							<th>{{ "List import"|t }}</th>
+							<th>{{ "List export"|t }}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{% for item in data %}
+							<tr>
+								<td class="text-center">{{ loop.index }}</td>
+								<td class="text-start">
+									<a class="list-unstyled" href="{{ path('<front>') }}node-uuid/{{ item.uuid }}" target="_blank">{{ item.name }}</a>
+								</td>
+								<td class="text-center">{{ item.code }}</td>
+								<td  class="text-center">{{ item.quantity|number_format(0, ",", ".") }}</td>
+								<td  class="text-center">{{ item.unit }}</td>
+								<td class="text-center">{{ item.tax }}</td>
+								<td>
+									<a href="{{ path('<front>') }}accountant/e-invoice-detail-import/{{ item.id }}" class="dropdown-item btn use-ajax"
+										data-dialog-type="modal" data-dialog-options="{&quot;width&quot;:&quot;70%&quot;,&quot;title&quot;:&quot;&quot;}">
+										{{ "View"|t }}
+									</a>
+								</td>
+								<td>
+									<a href="{{ path('<front>') }}accountant/e-invoice-detail-export/{{ item.id }}" class="dropdown-item btn use-ajax"
+										data-dialog-type="modal" data-dialog-options="{&quot;width&quot;:&quot;70%&quot;,&quot;title&quot;:&quot;&quot;}">
+										{{ "View"|t }}
+									</a>
+								</td>
+							</tr>
+						{% endfor %}
+					</tbody>
+				</table>
+			</div>
+			{{ filter.pager }}
+		</div>
+	</div>
+</div>
