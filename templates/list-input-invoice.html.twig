@@ -130,7 +130,7 @@
 															{{ "View PDF"|t }}
 														</a>
 													{% else %}
-														<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"uuid": item.uuid} , {"query" : {"destination" : filter.destination}}) }}">
+														<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"type": "pdf", "uuid": item.uuid}, {"query" : {"destination" : filter.destination}}) }}">
 															{{ "Download PDF"|t }}
 														</a>
 													{% endif %}
@@ -141,14 +141,14 @@
 															{{ "View XML"|t }}
 														</a>
 													{% else %}
-														<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"uuid": item.uuid} , {"query" : {"destination" : filter.destination}}) }}">
+														<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"type": "xml", "uuid": item.uuid}, {"query" : {"destination" : filter.destination}}) }}">
 															{{ "Download XML"|t }}
 														</a>
 													{% endif %}
 												</li>
 												<li>
 													{% if item.invoice_pdf is empty and  item.invoice_xml is empty %}
-														<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"uuid": item.uuid} , {"query" : {"destination" : filter.destination}}) }}">
+														<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"type": "all", "uuid": item.uuid}, {"query" : {"destination" : filter.destination}}) }}">
 															{{ "Download PDF & XML"|t }}
 														</a>
 													{% endif %}

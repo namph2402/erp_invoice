@@ -15,7 +15,7 @@ use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\Url;
 use Drupal\e_invoice\InvoiceInterface;
 use Drupal\e_invoice\Service\GetConfigInvoice;
-use Drupal\taxonomy\Entity\Term;
+use Drupal\taxonomy\TermInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -37,19 +37,19 @@ class InvoiceService {
   /**
    * Constructs an InvoiceService object.
    *
-   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entityTypeManager
+   * @param EntityTypeManagerInterface $entityTypeManager
    *   The entity type manager.
-   * @param \Drupal\Core\Session\AccountProxyInterface $currentUser
+   * @param AccountProxyInterface $currentUser
    *   The current user.
-   * @param \Drupal\Core\Messenger\MessengerInterface $messenger
+   * @param MessengerInterface $messenger
    *   The messenger.
-   * @param \Drupal\e_invoice\Service\GetConfigInvoice $config
+   * @param GetConfigInvoice $config
    *   The e-invoice config service.
-   * @param \Drupal\Core\Database\Connection $connection
+   * @param  $connection
    *   The database connection.
-   * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $keyValue
+   * @param KeyValueFactoryInterface $keyValue
    *   The key/value factory.
-   * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $loggerFactory
+   * @param LoggerChannelFactoryInterface $loggerFactory
    *   The logger channel factory.
    */
   public function __construct(
@@ -135,6 +135,13 @@ class InvoiceService {
     $company_id = NULL;
     $config_company = [];
 
+    // Đánh khoá theo uuid: nhà cung cấp trả kết quả theo RefID (chính là uuid),
+    // khoá theo id entity thì không ghép ngược lại được.
+    $invoices = array_combine(
+      array_map(static fn ($invoice) => $invoice->uuid(), $invoices),
+      $invoices
+    );
+
     /** @var \Drupal\e_invoice\Entity\Invoice $invoice */
     foreach ($invoices as $invoice) {
       // Các hóa đơn cùng công ty dùng chung cấu hình, không cần lấy lại.
@@ -172,7 +179,7 @@ class InvoiceService {
         ? $company_entity->get("field_config_invoice")->entity
         : NULL;
 
-      if (empty($config_entity)) {
+      if (!$config_entity instanceof TermInterface) {
         $this->messenger->addError($this->t("Not found config"));
         return new RedirectResponse($redirect);
       }
@@ -207,7 +214,6 @@ class InvoiceService {
       ? $request->query->get("end_date")
       : date("Y-m-d");
 
-    $search_date = $request->query->get("search_date");
     $import = $request->query->get("import");
     $export = $request->query->get("export");
     $status = $request->query->get("status") ?? "";
@@ -273,8 +279,8 @@ class InvoiceService {
       $invoices_query->condition($group);
     }
     else {
-      if (!empty($start_date)) {  
-        $created_at_start = (new \DateTime($start_date . ' 23:59:59', $vn_tz))->setTimezone($utc_tz);
+      if (!empty($start_date)) {
+        $created_at_start = (new \DateTime($start_date . ' 00:00:00', $vn_tz))->setTimezone($utc_tz);
         $invoices_query->condition("field_invoice_date.value", $created_at_start->format('Y-m-d\TH:i:s'), ">=");
       }
       if (!empty($end_date)) {
@@ -334,8 +340,16 @@ class InvoiceService {
 
   /**
    * Lấy các giá trị trường select list.
+   *
+   * @param string $bundle
+   *   Bundle của entity invoice.
+   * @param string $field
+   *   Tên field.
+   *
+   * @return array
+   *   Danh sách giá trị cho phép, rỗng khi bundle không có field này.
    */
-  public function allowedValueField($bundle, $field) {
+  public function allowedValueField(string $bundle, string $field): array {
     $field_config = $this->entityTypeManager
       ->getStorage('field_config')
       ->loadByProperties([
@@ -344,35 +358,29 @@ class InvoiceService {
         'field_name' => $field,
       ]);
 
-    /** @var \Drupal\field\Entity\FieldConfig $field_config */
+    /** @var \Drupal\field\Entity\FieldConfig|false $field_config */
     $field_config = reset($field_config);
-    return $field_config->getFieldStorageDefinition()->getSetting('allowed_values');
+
+    if (!$field_config) {
+      return [];
+    }
+
+    return $field_config
+      ->getFieldStorageDefinition()
+      ->getSetting('allowed_values') ?? [];
   }
 
   /**
    * Lấy cấu hình hóa đơn điện tử công ty qua taxonomy.
+   *
+   * @param TermInterface $config_entity
+   *   Term cấu hình hóa đơn của công ty.
+   *
+   * @return array
+   *   Cấu hình đã chuẩn hoá, token được làm mới nếu hết hạn.
    */
-  public function getConfig(Term $config_entity) {
-    $config = [
-      "invoice_entity" => $config_entity,
-      "use_config" => $config_entity->get("field_use_config_settings")->value,
-      "invoice_provider" => $config_entity->get("field_inv_provider")->value,
-      "invoice_host" => $config_entity->get("field_inv_host")->uri,
-      "invoice_username" => $config_entity->get("field_inv_username")->value,
-      "invoice_password" => $config_entity->get("field_inv_password")->value,
-      "invoice_taxcode" => $config_entity->get("field_inv_taxcode")->value,
-      "invoice_appid" => $config_entity->get("field_inv_appid")->value,
-      "invoice_appurl" => $config_entity->get("field_inv_appurl")->uri,
-      "invoice_client" => $config_entity->get("field_inv_client")->value,
-      "invoice_subscribers" => $config_entity->get("field_inv_subscribers")->value,
-      "invoice_organization" => $config_entity->get("field_inv_organization")->value,
-      "invoice_token" => $config_entity->get("field_inv_token")->value,
-      "invoice_jwt_token" => $config_entity->get("field_inv_jwt_token")->value,
-      "invoice_expiration" => $config_entity->get("field_inv_expiration")->value,
-      "invoice_templates" => $config_entity->get("field_inv_templates")->getValue() ?? [],
-    ];
-
-    return $this->config->handle($config);
+  public function getConfig(TermInterface $config_entity): array {
+    return $this->config->handle($config_entity);
   }
 
   /**

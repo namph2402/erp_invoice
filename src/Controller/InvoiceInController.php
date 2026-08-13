@@ -13,6 +13,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Drupal\e_invoice\Service\GetConfigInvoice;
 use Drupal\e_invoice\Service\HandleInvoice;
 use Drupal\erp_e_invoice\InvoiceService;
+use Drupal\taxonomy\TermInterface;
 
 /**
  * Returns responses for ERPCons accountant invoice routes.
@@ -72,9 +73,8 @@ class InvoiceInController extends ControllerBase {
         "invoice_name" => $invoice->label(),
         "invoice_no" => $invoice->get("field_invoice_no")->value,
         "invoice_date" => $invoice->get("field_invoice_date")->value,
-        "invoice_status_custorm" => $list_status_custorm[$invoice->get("field_invoice_status_custorm")->value] ?? NULL,
-        "invoice_pattern" =>$invoice->get("field_invoice_pattern")->value,
-        "invoice_serial" =>$invoice->get("field_invoice_serial")->value,
+        "invoice_pattern" => $invoice->get("field_invoice_pattern")->value,
+        "invoice_serial" => $invoice->get("field_invoice_serial")->value,
         "invoice_seller_name" => $invoice->get("field_invoice_seller_name")->value ?? "",
         "invoice_seller_taxcode" => $invoice->get("field_invoice_seller_taxcode")->value ?? "",
         "invoice_amount_without_vat" => $invoice->get("field_invoice_amount_without_vat")->value ?? 0,
@@ -85,6 +85,9 @@ class InvoiceInController extends ControllerBase {
         "invoice_import" => $invoice->get("field_invoice_import")->value ?? 0,
         "invoice_pdf" => $invoice_pdf,
         "invoice_xml" => $invoice_xml,
+        "invoice_status_custorm" => $invoice->hasField("field_invoice_status_custorm")
+          ? ($list_status_custorm[$invoice->get("field_invoice_status_custorm")->value] ?? NULL)
+          : NULL,
       ];
     }
 
@@ -141,7 +144,7 @@ class InvoiceInController extends ControllerBase {
       ? $company_entity->get("field_config_invoice")->entity
       : NULL;
 
-    if (empty($config_entity)) {
+    if (!$config_entity instanceof TermInterface) {
       $this->messenger()->addError($this->t("Not found config"));
       return new RedirectResponse($redirect);
     }
@@ -153,7 +156,7 @@ class InvoiceInController extends ControllerBase {
     $params = [
       "from" => !empty($data["start_date"]) ? date("Y-m-d", strtotime($data["start_date"])) : "",
       "to" => !empty($data["end_date"]) ? date("Y-m-d", strtotime($data["end_date"])) : "",
-      "skip" => $data["skip"] ?? "0",
+      "skip" => (int) ($data["skip"] ?? 0),
     ];
 
     $invoice = $this->handleInvoice->modifiedInvoice($dataConfig, $params, $field);
@@ -185,15 +188,14 @@ class InvoiceInController extends ControllerBase {
     }
 
     $param = [
-      "accountant" => $data["accoutant"],
-      "accountant_date" => $data["accoutant-date"],
+      "accountant" => $data["accoutant"] ?? "",
+      "accountant_date" => !empty($data["accoutant-date"])
+        ? date("Y-m-d", strtotime($data["accoutant-date"]))
+        : date("Y-m-d"),
       "ref_no" => $this->uuid->generate(),
     ];
 
-    /** @var \Drupal\e_invoice\InvoiceInterface $dataInvoice */
-    $dataInvoice = reset($custom["invoice"]);
-
-    $invoice = $this->handleInvoice->accountingInvoice($dataInvoice, $custom["config"], $param);
+    $invoice = $this->handleInvoice->accountingInvoice($custom["invoice"], $custom["config"], $param);
 
     if (!$invoice["success"]) {
       $this->messenger()->addError($invoice["message"]);
@@ -212,15 +214,23 @@ class InvoiceInController extends ControllerBase {
     $destination = $request->query->get("destination");
     $array_uuid = explode(',', $uuid);
 
+    $list_type = [
+      "all" => 1,
+      "pdf" => 2,
+      "xml" => 3
+    ];
+
+    if (!isset($list_type[$type])) {
+      $this->messenger()->addError($this->t("Not found type"));
+      return new RedirectResponse($destination);
+    }
+
     $custom = $this->invoiceService->getCustom($destination, $array_uuid, "in");
     if ($custom instanceof Response) {
       return $custom;
     }
 
-    /** @var \Drupal\e_invoice\InvoiceInterface $dataInvoice */
-    $dataInvoice = reset($custom["invoice"]);
-
-    $file = $this->handleInvoice->fileInputInvoice($dataInvoice, $custom["config"]);
+    $file = $this->handleInvoice->fileInputInvoice($custom["invoice"], $custom["config"]);
 
     if (!$file["success"]) {
       $this->messenger()->addError($file["message"]);

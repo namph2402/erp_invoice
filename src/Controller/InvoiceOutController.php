@@ -12,6 +12,7 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Drupal\e_invoice\InvoiceInterface;
 use Drupal\e_invoice\Service\GetConfigInvoice;
 use Drupal\e_invoice\Service\HandleInvoice;
@@ -391,13 +392,15 @@ class InvoiceOutController extends ControllerBase {
     }
 
     $dataConfig = $custom["config"];
-    $dataConfig["invoice_template"] = json_decode($data["template-value"], TRUE);
+    $dataConfig["invoice_template"] = $this->getTemplate($data);
 
-    /** @var InvoiceInterface $dataInvoice */
+    /** @var \Drupal\e_invoice\InvoiceInterface $dataInvoice */
     $dataInvoice = reset($custom["invoice"]);
-    $dataInv = $this->getData($dataInvoice);
 
-    $invoice = $this->handleInvoice->previewInvoice($dataConfig, $dataInv);
+    $invoice = $this->handleInvoice->previewInvoice(
+      $dataConfig,
+      [$dataInvoice->uuid() => $this->getData($dataInvoice)]
+    );
 
     if (!$invoice["success"]) {
       $this->messenger()->addError($invoice["message"]);
@@ -421,13 +424,14 @@ class InvoiceOutController extends ControllerBase {
 
     $dataInv = [];
     $origins = [];
-    $get_file = $data["invoice-get-file"] == "TRUE";
+    $get_file = ($data["invoice-get-file"] ?? "") == "TRUE";
     $dataConfig = $custom["config"];
-    $dataConfig["invoice_template"] = json_decode($data["template-value"], TRUE);
+    $dataConfig["invoice_template"] = $this->getTemplate($data);
 
     /** @var \Drupal\e_invoice\Entity\Invoice $dataInvoice */
     foreach ($custom["invoice"] as $dataInvoice) {
-      $dataInv[] = $this->getData($dataInvoice);
+      // Đánh khoá theo uuid để ghép được kết quả trả về (RefID) với hóa đơn.
+      $dataInv[$dataInvoice->uuid()] = $this->getData($dataInvoice);
 
       $origin_entity = $dataInvoice->hasField("field_invoice_origin")
         ? $dataInvoice->get("field_invoice_origin")->entity
@@ -448,14 +452,17 @@ class InvoiceOutController extends ControllerBase {
 
     $invoice = $this->handleInvoice->issueInvoice($custom["invoice"], $dataConfig, $dataInv, $get_file);
 
-    if (!$invoice["success"]) {
-      $this->messenger()->addError($invoice["message"] ?? $this->t("Issue invoice failed"));
-      return new RedirectResponse($custom["redirect"]);
-    }
-
     // Báo riêng những hóa đơn nhà cung cấp từ chối, thay vì im lặng bỏ qua.
     foreach ($invoice["errors"] ?? [] as $error) {
       $this->messenger()->addError($error);
+    }
+
+    if (!$invoice["success"]) {
+      if (empty($invoice["errors"])) {
+        $this->messenger()->addError($invoice["message"] ?? $this->t("Issue invoice failed"));
+      }
+
+      return new RedirectResponse($custom["redirect"]);
     }
 
     /** @var \Drupal\e_invoice\InvoiceInterface $issued */
@@ -492,15 +499,26 @@ class InvoiceOutController extends ControllerBase {
     }
 
     $dataConfig = $custom["config"];
-    $dataConfig["invoice_template"] = json_decode($data["template-value"], TRUE);
+    $dataConfig["invoice_template"] = $this->getTemplate($data);
 
-    /** @var InvoiceInterface $dataInvoice */
+    /** @var \Drupal\e_invoice\InvoiceInterface $dataInvoice */
     $dataInvoice = reset($custom["invoice"]);
-    $dataInv = $this->getData($dataInvoice);
-    $replate = $this->handleInvoice->replaceInvoice($dataInvoice, $dataConfig, $dataInv);
+    $invoices = [$dataInvoice->uuid() => $dataInvoice];
+
+    $replate = $this->handleInvoice->replaceInvoice(
+      $invoices,
+      $dataConfig,
+      [$dataInvoice->uuid() => $this->getData($dataInvoice)]
+    );
+
+    foreach ($replate["errors"] ?? [] as $error) {
+      $this->messenger()->addError($error);
+    }
 
     if (!$replate["success"]) {
-      $this->messenger()->addError($replate["message"]);
+      if (!empty($replate["message"])) {
+        $this->messenger()->addError($replate["message"]);
+      }
     }
     else {
       $this->messenger()->addStatus($this->t("Modified invoice successfully"));
@@ -522,14 +540,11 @@ class InvoiceOutController extends ControllerBase {
     }
 
     $params = [
-      "calcu" => $data["calcu"],
-      "withCode" => $data["withCode"],
+      "calcu" => $data["calcu"] ?? "false",
+      "withCode" => $data["withCode"] ?? "true",
     ];
 
-    /** @var InvoiceInterface $dataInvoice */
-    $dataInvoice = reset($custom["invoice"]);
-
-    $status = $this->handleInvoice->statusInvoice($dataInvoice, $custom["config"], $params);
+    $status = $this->handleInvoice->statusInvoice($custom["invoice"], $custom["config"], $params);
 
     if (!$status["success"]) {
       $this->messenger()->addError($status["message"]);
@@ -553,16 +568,17 @@ class InvoiceOutController extends ControllerBase {
       return $custom;
     }
 
-    /** @var InvoiceInterface $dataInvoice */
-    $dataInvoice = reset($custom["invoice"]);
-
-    $file = $this->handleInvoice->pdfOutputInvoice($dataInvoice, $custom["config"]);
+    $file = $this->handleInvoice->pdfOutputInvoice($custom["invoice"], $custom["config"]);
 
     if (!$file["success"]) {
       $this->messenger()->addError($file["message"]);
     }
     else {
       $this->messenger()->addStatus($this->t("Get file invoice successfully"));
+
+      if (!empty($file["message"])) {
+        $this->messenger()->addWarning($file["message"]);
+      }
     }
 
     return new RedirectResponse($custom["redirect"]);
@@ -648,28 +664,51 @@ class InvoiceOutController extends ControllerBase {
   }
 
   /**
-   * Lấy dữ liệu hóa đơn.
+   * Đọc mẫu số / ký hiệu hóa đơn người dùng chọn trên modal phát hành.
+   *
+   * @param array $data
+   *   Dữ liệu POST của form.
+   *
+   * @return array
+   *   Mẫu hóa đơn gồm "name", "pattern", "serial".
    */
-  private function getData(InvoiceInterface $invoice) {
-    $products = [];
-    $invoice_created_date = !empty($invoice->get("field_invoice_date")->value) ? new \DateTime($invoice->get("field_invoice_date")->value) : NULL;
+  private function getTemplate(array $data): array {
+    $template = json_decode($data["template-value"] ?? "", TRUE);
 
-    $paymentRaw = $invoice->hasField("field_invoice_payment") ? $invoice->get("field_invoice_payment")->value : "";
-    $payment = $paymentRaw === "inv_tm" ? "TM" : ($paymentRaw === "inv_ck" ? "CK" : "TM/CK");
+    if (!is_array($template) || empty($template["serial"])) {
+      throw new BadRequestHttpException("Chưa chọn mẫu số, ký hiệu hóa đơn");
+    }
+
+    return $template;
+  }
+
+  /**
+   * Lấy dữ liệu hóa đơn.
+   *
+   * @param \Drupal\e_invoice\InvoiceInterface $invoice
+   *   Hóa đơn đầu ra.
+   *
+   * @return array
+   *   Dữ liệu chuẩn hoá để gửi cho nhà cung cấp.
+   */
+  private function getData(InvoiceInterface $invoice): array {
+    $products = [];
+    $invoice_date = $this->fieldValue($invoice, "field_invoice_date");
+
+    $payment = match ($this->fieldValue($invoice, "field_invoice_payment")) {
+      "inv_tm" => "TM",
+      "inv_ck" => "CK",
+      default => "TM/CK",
+    };
 
     foreach ($invoice->get("field_invoice_items")->getValue() as $item) {
       $quantity = (float) ($item["item_quantity"] ?? 0);
       $price = (float) ($item["item_price"] ?? 0);
       $discount = (float) ($item["item_discount_amount"] ?? 0);
       $vat_amount = (float) ($item["item_vat_amount"] ?? 0);
-      $amount = $quantity * $price;
+      $amount = (float) ($item["item_amount"] ?? ($quantity * $price));
       $amount_without_vat = (float) ($item["item_amount_without_vat"] ?? ($amount - $discount));
       $total_amount = (float) ($item["item_total_amount"] ?? ($amount_without_vat + $vat_amount));
-
-      $discountRate = 0;
-      if (str_contains($item["item_discount_rate"] ?? "", "%")) {
-        $discountRate = (int) str_replace("%", "", $item["item_discount_rate"]);
-      }
 
       $products[] = [
         "code" => $item["item_code"] ?? NULL,
@@ -677,33 +716,59 @@ class InvoiceOutController extends ControllerBase {
         "unit" => $item["item_unit"] ?? NULL,
         "quantity" => $quantity,
         "price" => $price,
-        "amount" => (float) ($item["item_amount"] ?? $amount),
-        "discount_rate" => $discountRate,
+        "amount" => $amount,
+        // Tỷ lệ chiết khấu lưu dạng chuỗi ("5" hoặc "5%"), bỏ ký tự % rồi ép số.
+        "discount_rate" => (float) str_replace("%", "", (string) ($item["item_discount_rate"] ?? 0)),
         "discount_amount" => $discount,
         "amount_without_vat" => $amount_without_vat,
-        "vat_rate" => (float) ($item["item_vat_rate"] ?? 0),
+        // Không ép kiểu: nhà cung cấp còn nhận tên thuế suất đặc biệt dạng
+        // chuỗi ("KCT", "KKKNT") bên cạnh thuế suất số.
+        "vat_rate" => is_numeric($item["item_vat_rate"] ?? NULL)
+          ? (float) $item["item_vat_rate"]
+          : ($item["item_vat_rate"] ?? 0),
         "vat_amount" => $vat_amount,
         "total_amount" => $total_amount,
-        "type" => $item["item_type"],
+        "type" => $item["item_type"] ?? 1,
       ];
     }
 
     return [
       "invoice_uuid" => $invoice->uuid(),
       "invoice_title" => $invoice->label(),
-      "invoice_buyer_name" => $invoice->hasField("field_invoice_buyer_name") ? $invoice->get("field_invoice_buyer_name")->value : "",
-      "invoice_buyer_taxcode" => $invoice->hasField("field_invoice_buyer_taxcode") ? $invoice->get("field_invoice_buyer_taxcode")->value : "",
-      "invoice_buyer_phone" => $invoice->hasField("field_invoice_buyer_phone") ? $invoice->get("field_invoice_buyer_phone")->value : "",
-      "invoice_buyer_address" => $invoice->hasField("field_invoice_buyer_address") ? $invoice->get("field_invoice_buyer_address")->value : "",
-      "invoice_amount" => $invoice->hasField("field_invoice_amount_without_vat") ? $invoice->get("field_invoice_amount_without_vat")->value : 0,
-      "invoice_discount_amount" => $invoice->hasField("field_invoice_discount_amount") ? $invoice->get("field_invoice_discount_amount")->value : 0,
-      "invoice_amount_without_vat" => $invoice->hasField("field_invoice_amount_without_vat") ? $invoice->get("field_invoice_amount_without_vat")->value : 0,
-      "invoice_vat_amount" => $invoice->hasField("field_invoice_vat_amount") ? $invoice->get("field_invoice_vat_amount")->value : 0,
-      "invoice_total_amount" => $invoice->hasField("field_invoice_total_amount") ? $invoice->get("field_invoice_total_amount")->value : 0,
-      "invoice_created_date" => $invoice_created_date ? $invoice_created_date->format("d/m/Y") : date("d/m/Y"),
+      "invoice_buyer_legal" => $this->fieldValue($invoice, "field_invoice_buyer_legal"),
+      "invoice_buyer_name" => $this->fieldValue($invoice, "field_invoice_buyer_name"),
+      "invoice_buyer_taxcode" => $this->fieldValue($invoice, "field_invoice_buyer_taxcode"),
+      "invoice_buyer_phone" => $this->fieldValue($invoice, "field_invoice_buyer_phone"),
+      "invoice_buyer_address" => $this->fieldValue($invoice, "field_invoice_buyer_address"),
+      // Tiền hàng trước chiết khấu; trước đây lấy nhầm số đã trừ chiết khấu nên
+      // MISA nhận sai TotalSaleAmount.
+      "invoice_amount" => (float) $this->fieldValue($invoice, "field_invoice_amount"),
+      "invoice_discount_amount" => (float) $this->fieldValue($invoice, "field_invoice_discount_amount"),
+      "invoice_amount_without_vat" => (float) $this->fieldValue($invoice, "field_invoice_amount_without_vat"),
+      "invoice_vat_amount" => (float) $this->fieldValue($invoice, "field_invoice_vat_amount"),
+      "invoice_total_amount" => (float) $this->fieldValue($invoice, "field_invoice_total_amount"),
+      // MISA nhận ngày lập theo Y-m-d.
+      "invoice_date" => $invoice_date !== "" ? substr($invoice_date, 0, 10) : date("Y-m-d"),
       "invoice_payment" => $payment,
       "products" => $products,
     ];
+  }
+
+  /**
+   * Đọc giá trị field, trả chuỗi rỗng khi bundle không có field.
+   *
+   * @param \Drupal\e_invoice\InvoiceInterface $invoice
+   *   Hóa đơn cần đọc.
+   * @param string $field
+   *   Tên field.
+   *
+   * @return string
+   *   Giá trị field.
+   */
+  private function fieldValue(InvoiceInterface $invoice, string $field): string {
+    return $invoice->hasField($field)
+      ? (string) $invoice->get($field)->value
+      : "";
   }
 
   /**
