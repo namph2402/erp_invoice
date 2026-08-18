@@ -18,6 +18,7 @@
 						<option value="{{ company_id }}" {% if filter.company_id == company_id %} selected {% endif %}>{{ company_name }}</option>
 					{% endfor %}
 				</select>
+				<input type="hidden" name="limit" value="{{ filter.limit }}"/>
 				<button type="submit" class="btn btn-primary ms-1" style="white-space: nowrap;">
 					<i class="bi bi-search me-1"></i>
 				</button>
@@ -37,32 +38,88 @@
 				data-company-id="{{ filter.company_id }}" data-routing="{{ path("erp_e_invoice.e_invoice_issue") }}">
 				{{ "Issue multiple invoices"|t }}
 			</a>
-			<button class="btn btn-secondary ms-1 text-nowrap btn-export">{{ "Export invoice"|t }}  
+			<button class="btn btn-secondary ms-1 text-nowrap btn-export">{{ "Export invoice"|t }}
 				{% if filter.count_export > 0 %}
 					<span class="d-inline-flex px-2 border rounded-pill fw-bold">{{ filter.count_export }}</span>
 				{% endif %}
 			</button>
 		</div>
 	</div>
-	<div class="flex-grow-1 overflow-hidden p-2 bg-white">
+	<div class="flex-grow-1 min-h-0 min-w-0 p-2 bg-white">
 		<div class="d-flex flex-column h-100 text-center">
 			<h4 class="text-uppercase fw-bold my-2" id="title-report">
 				{{ "List of output invoices"|t }}
 			</h4>
-			<div class="flex-grow-1 overflow-auto h-100">
-				<table class="table table-hover table-bordered table-striped">
+
+			{# Tổng tiền của toàn bộ hóa đơn khớp bộ lọc, không chỉ số dòng đang hiển thị. #}
+			<div class="invoice-summary row g-2 mb-2 text-start">
+				<div class="col-6 col-xl-3">
+					<div class="summary-card h-100">
+						<div class="summary-label">{{ "Number of invoices"|t }}</div>
+						<div class="summary-value">{{ filter.summary.count|number_format(0, ",", ".") }}</div>
+					</div>
+				</div>
+				<div class="col-6 col-xl-3">
+					<div class="summary-card h-100">
+						<div class="summary-label">{{ "Amount without vat"|t }}</div>
+						<div class="summary-value">{{ filter.summary.amount_without_vat|number_format(0, ",", ".") }}</div>
+					</div>
+				</div>
+				<div class="col-6 col-xl-3">
+					<div class="summary-card h-100">
+						<div class="summary-label">{{ "Vat amount"|t }}</div>
+						<div class="summary-value">{{ filter.summary.vat_amount|number_format(0, ",", ".") }}</div>
+					</div>
+				</div>
+				<div class="col-6 col-xl-3">
+					<div class="summary-card summary-card-total h-100">
+						<div class="summary-label">{{ "Total amount"|t }}</div>
+						<div class="summary-value">{{ filter.summary.total_amount|number_format(0, ",", ".") }}</div>
+					</div>
+				</div>
+			</div>
+
+			{# Thanh công cụ: số dòng hiển thị, chọn cột, xuất Excel. #}
+			<div class="invoice-toolbar d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+				<div class="d-flex align-items-center gap-2">
+					<label class="mb-0 text-nowrap small text-muted" for="invoice-limit-out">{{ "Rows displayed"|t }}</label>
+					<select id="invoice-limit-out" class="form-select form-select-sm invoice-limit">
+						{% for limit in filter.option_limit %}
+							<option value="{{ limit }}" {% if filter.limit == limit %} selected {% endif %}>{{ limit }}</option>
+						{% endfor %}
+					</select>
+					<span class="small text-muted text-nowrap">
+						{{ "Showing @showing / @total"|t({"@showing": data|length, "@total": filter.summary.count}) }}
+					</span>
+				</div>
+				<div class="d-flex align-items-center gap-2">
+					<div class="dropdown">
+						<button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle text-nowrap" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+							<i class="bi bi-layout-three-columns me-1"></i>{{ "Columns"|t }}
+						</button>
+						<ul class="dropdown-menu dropdown-menu-end invoice-column-menu p-2"></ul>
+					</div>
+					<button type="button" class="btn btn-success btn-sm text-nowrap btn-export-excel">
+						<i class="bi bi-file-earmark-excel me-1"></i>{{ "Export Excel"|t }}
+					</button>
+				</div>
+			</div>
+
+			<div class="flex-grow-1 min-h-0 min-w-0 invoice-table-wrapper">
+				<table class="table table-hover table-bordered table-striped invoice-table"
+					data-table-key="output-invoice" data-export-name="{{ "List of output invoices"|t }}">
 					<thead class="text-center">
 						<tr>
-							<th><input type="checkbox" id="select-invoice-all"/></th>
-							<th>{{ "Title"|t }}</th>
-							<th>{{ "Buyer"|t }}</th>
-							<th>{{ "Tax code"|t }}</th>
-							<th>{{ "Amount without vat"|t }}</th>
-							<th>{{ "Vat amount"|t }}</th>
-							<th>{{ "Discount amount"|t }}</th>
-							<th>{{ "Total amount"|t }}</th>
-							<th>{{ "Invoice status"|t }}</th>
-							<th>{{ "Action"|t }}</th>
+							<th data-col-lock="1" data-col-sort="0" data-col-label="{{ "Invoice no"|t }}"><input type="checkbox" id="select-invoice-all"/></th>
+							<th class="text-nowrap">{{ "Title"|t }}</th>
+							<th class="text-nowrap">{{ "Buyer"|t }}</th>
+							<th class="text-nowrap">{{ "Tax code"|t }}</th>
+							<th class="text-nowrap">{{ "Amount without vat"|t }}</th>
+							<th class="text-nowrap">{{ "Vat amount"|t }}</th>
+							<th class="text-nowrap">{{ "Discount amount"|t }}</th>
+							<th class="text-nowrap">{{ "Total amount"|t }}</th>
+							<th class="text-nowrap">{{ "Invoice status"|t }}</th>
+							<th class="text-nowrap" data-col-lock="1" data-col-export="0" data-col-sort="0">{{ "Action"|t }}</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -86,10 +143,10 @@
 								<td>
 									<p class="mb-0 text-center">{{ item.invoice_buyer_taxcode }}</p>
 								</td>
-								<td class="text-end">{{ item.invoice_amount_without_vat|number_format(0, ",", ".") }}</td>
-								<td class="text-end">{{ item.invoice_vat_amount|number_format(0, ",", ".") }}</td>
-								<td class="text-end">{{ item.invoice_discount_amount|number_format(0, ",", ".") }}</td>
-								<td class="text-end">{{ item.invoice_total_amount|number_format(0, ",", ".") }}</td>
+								<td class="text-end" data-value="{{ item.invoice_amount_without_vat }}">{{ item.invoice_amount_without_vat|number_format(0, ",", ".") }}</td>
+								<td class="text-end" data-value="{{ item.invoice_vat_amount }}">{{ item.invoice_vat_amount|number_format(0, ",", ".") }}</td>
+								<td class="text-end" data-value="{{ item.invoice_discount_amount }}">{{ item.invoice_discount_amount|number_format(0, ",", ".") }}</td>
+								<td class="text-end" data-value="{{ item.invoice_total_amount }}">{{ item.invoice_total_amount|number_format(0, ",", ".") }}</td>
 								<td class="text-center">{{ item.invoice_status.label }}</td>
 								<td>
 									<div class="dropdown">
@@ -206,7 +263,6 @@
 					</tbody>
 				</table>
 			</div>
-			{{ filter.pager }}
 		</div>
 	</div>
 </div>

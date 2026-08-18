@@ -110,11 +110,11 @@ class InvoiceOutController extends ControllerBase {
         "status" => $node_invoices["status"],
         "option_company" => $node_invoices["option_company"],
         "option_status" => $allowed_values,
+        "limit" => $node_invoices["limit"],
+        "option_limit" => $node_invoices["option_limit"],
+        "summary" => $node_invoices["summary"],
         "destination" => $request->getRequestUri(),
         "current_user" => $this->currentUser()->getAccountName(),
-        "pager" => [
-          "#type" => "pager",
-        ],
       ],
       "#attached" => [
         "library" => [
@@ -280,7 +280,6 @@ class InvoiceOutController extends ControllerBase {
       $items = [];
       $data = $this->parseXML($uploadedFile->getRealPath());
 
-      // File XML sai cấu trúc thì bỏ qua, không để cảnh báo undefined key.
       if (empty($data["DLHDon"]["TTChung"]) || empty($data["DLHDon"]["NDHDon"])) {
         $this->messenger()->addError($this->t("Invalid XML structure: @file", [
           "@file" => $uploadedFile->getClientOriginalName(),
@@ -337,7 +336,9 @@ class InvoiceOutController extends ControllerBase {
 
       $alias_name = $this->invoiceService->findCompanies($company_name);
       if (!isset($alias_name[$company_name])) {
-        $this->messenger()->addError($this->t("Not found company"));
+        $this->messenger()->addError($this->t("Not found company @company", [
+          "@company" => $company_name,
+        ]));
         continue;
       }
 
@@ -368,7 +369,7 @@ class InvoiceOutController extends ControllerBase {
           "field_invoice_payment" => "inv_tm_ck",
           "field_invoice_mccqt" => $data["MCCQT"] ?? NULL,
           "field_invoice_status_cqt" => !empty($data["MCCQT"]) ? 1 : 0,
-          "field_invoice_company" => $alias_name[$company_name],
+          "field_invoice_company" => $company_name,
           "field_invoice_origin" => NULL,
         ]
       )
@@ -394,7 +395,7 @@ class InvoiceOutController extends ControllerBase {
     $dataConfig = $custom["config"];
     $dataConfig["invoice_template"] = $this->getTemplate($data);
 
-    /** @var \Drupal\e_invoice\InvoiceInterface $dataInvoice */
+    /** @var InvoiceInterface $dataInvoice */
     $dataInvoice = reset($custom["invoice"]);
 
     $invoice = $this->handleInvoice->previewInvoice(
@@ -465,7 +466,7 @@ class InvoiceOutController extends ControllerBase {
       return new RedirectResponse($custom["redirect"]);
     }
 
-    /** @var \Drupal\e_invoice\InvoiceInterface $issued */
+    /** @var InvoiceInterface $issued */
     foreach ($invoice["issued"] ?? [] as $issued) {
       $origin_entity = $origins[$issued->uuid()] ?? NULL;
 
@@ -474,7 +475,7 @@ class InvoiceOutController extends ControllerBase {
         $origin_entity->save();
       }
 
-      $this->createExportDocument($issued);
+      // $this->createExportDocument($issued);
     }
 
     $this->messenger()->addStatus($this->formatPlural(
@@ -501,7 +502,7 @@ class InvoiceOutController extends ControllerBase {
     $dataConfig = $custom["config"];
     $dataConfig["invoice_template"] = $this->getTemplate($data);
 
-    /** @var \Drupal\e_invoice\InvoiceInterface $dataInvoice */
+    /** @var InvoiceInterface $dataInvoice */
     $dataInvoice = reset($custom["invoice"]);
     $invoices = [$dataInvoice->uuid() => $dataInvoice];
 
@@ -685,7 +686,7 @@ class InvoiceOutController extends ControllerBase {
   /**
    * Lấy dữ liệu hóa đơn.
    *
-   * @param \Drupal\e_invoice\InvoiceInterface $invoice
+   * @param InvoiceInterface $invoice
    *   Hóa đơn đầu ra.
    *
    * @return array
@@ -740,14 +741,11 @@ class InvoiceOutController extends ControllerBase {
       "invoice_buyer_taxcode" => $this->fieldValue($invoice, "field_invoice_buyer_taxcode"),
       "invoice_buyer_phone" => $this->fieldValue($invoice, "field_invoice_buyer_phone"),
       "invoice_buyer_address" => $this->fieldValue($invoice, "field_invoice_buyer_address"),
-      // Tiền hàng trước chiết khấu; trước đây lấy nhầm số đã trừ chiết khấu nên
-      // MISA nhận sai TotalSaleAmount.
       "invoice_amount" => (float) $this->fieldValue($invoice, "field_invoice_amount"),
       "invoice_discount_amount" => (float) $this->fieldValue($invoice, "field_invoice_discount_amount"),
       "invoice_amount_without_vat" => (float) $this->fieldValue($invoice, "field_invoice_amount_without_vat"),
       "invoice_vat_amount" => (float) $this->fieldValue($invoice, "field_invoice_vat_amount"),
       "invoice_total_amount" => (float) $this->fieldValue($invoice, "field_invoice_total_amount"),
-      // MISA nhận ngày lập theo Y-m-d.
       "invoice_date" => $invoice_date !== "" ? substr($invoice_date, 0, 10) : date("Y-m-d"),
       "invoice_payment" => $payment,
       "products" => $products,
@@ -757,7 +755,7 @@ class InvoiceOutController extends ControllerBase {
   /**
    * Đọc giá trị field, trả chuỗi rỗng khi bundle không có field.
    *
-   * @param \Drupal\e_invoice\InvoiceInterface $invoice
+   * @param InvoiceInterface $invoice
    *   Hóa đơn cần đọc.
    * @param string $field
    *   Tên field.

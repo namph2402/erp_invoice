@@ -12,6 +12,7 @@
 						<option value="{{ company_id }}" {% if filter.company_id == company_id %} selected {% endif %}>{{ company_name }}</option>
 					{% endfor %}
 				</select>
+				<input type="hidden" name="limit" value="{{ filter.limit }}"/>
 				<button type="submit" class="btn btn-primary ms-1" style="white-space: nowrap;">
 					<i class="bi bi-search me-1"></i>
 				</button>
@@ -36,140 +37,237 @@
 			<h4 class="text-uppercase fw-bold my-2" id="title-report">
 				{{ "List of input invoices"|t }}
 			</h4>
-			<div class="flex-grow-1 min-h-0 min-w-0 overflow-auto">
-				<div class="invoice-table-wrapper table-responsive">
-					<table class="table table-hover table-bordered table-striped">
-						<thead class="text-center">
-							<tr>
-								<th class="text-nowrap">{{ "Nº"|t }}</th>
-								<th class="text-nowrap">{{ "Invoice file"|t }}</th>
-								<th class="text-nowrap">{{ "Invoice no"|t }}</th>
-								<th class="text-nowrap">{{ "Invoice date"|t }}</th>
-								<th class="text-nowrap">{{ "Invoice status custorm"|t }}</th>
-								<th class="text-nowrap">{{ "Seller name"|t }}</th>
-								<th class="text-nowrap">{{ "Seller tax code"|t }}</th>
-								<th class="text-nowrap">{{ "Pattern"|t }}</th>
-								<th class="text-nowrap">{{ "Serial"|t }}</th>
-								<th class="text-nowrap">{{ "Amount without vat"|t }}</th>
-								<th class="text-nowrap">{{ "Vat amount"|t }}</th>
-								<th class="text-nowrap">{{ "Total amount"|t }}</th>
-								<th class="text-nowrap">{{ "Accountant name"|t }}</th>
-								<th class="text-nowrap">{{ "Accountant date"|t }}</th>
-								<th class="text-nowrap">{{ "Action"|t }}</th>
-							</tr>
-						</thead>
-						<tbody>
-							{% for item in data %}
-								<tr>
-									<td class="text-center">{{ loop.index }}</td>
-									<td class="text-center">
-										{% if item.invoice_pdf is not empty %}
-											<a href="{{ item.invoice_pdf }}" target="_blank">
-												<i class="bi bi-filetype-pdf fs-5"></i>
-											</a>
-										{% endif %}
-									</td>
-									<td class="text-center">
-										<a href="{{ path('<front>') }}invoice-uuid/{{ item.uuid }}" class="d-inline-block m-0 text-success text-decoration-none fw-medium use-ajax" data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
-											{{ item.invoice_no }}
-										</a>
-									</td>
-									<td class="text-center">
-										{{ item.invoice_date| date("d/m/Y") }}
-									</td>
-									<td class="text-center">
-										<small>{{ item.invoice_status_custorm}}</small>
-									</td>
-									<td>
-										{{ item.invoice_seller_name }}
-									</td>
-									<td>
-										{{ item.invoice_seller_taxcode }}
-									</td>
-									<td>
-										{{ item.invoice_pattern }}
-									</td>
-									<td>
-										{{ item.invoice_serial }}
-									</td>
-									<td class="text-end">
-										{{ item.invoice_amount_without_vat|number_format(0, ",", ".") }}
-									</td>
-									<td class="text-end">
-										{{ item.invoice_vat_amount|number_format(0, ",", ".") }}
-									</td>
-									<td class="text-end">
-										{{ item.invoice_total_amount|number_format(0, ",", ".") }}
-									</td>
-									<td class="text-center">
-										{% if item.invoice_accountant is not empty %}
-											<p class="mb-0">{{ item.invoice_accountant }}</p>
-										{% endif %}
-									</td>
-									<td class="text-center">
-										{% if item.invoice_accountant_date is not empty %}
-											<small>{{ item.invoice_accountant_date| date("d/m/Y") }}</small>
-										{% endif %}
-									</td>
-									<td>
-										<div class="dropdown">
-											<button class="btn btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-												<i class="bi bi-list"></i>
-											</button>
-											<ul class="dropdown-menu">
-												{% if item.invoice_import != 1 %}
-													<li>
-														<a href="{{ path('<front>') }}accountant/invoice/{{ item.uuid }}" class="dropdown-item use-ajax" data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
-															{{ "Import"|t }}
-														</a>
-													</li>
-												{% endif %}
-												<li>
-													{% if item.invoice_pdf is not empty %}
-														<a class="dropdown-item" href="{{ item.invoice_pdf }}" target="_blank">
-															{{ "View PDF"|t }}
-														</a>
-													{% else %}
-														<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"type": "pdf", "uuid": item.uuid}, {"query" : {"destination" : filter.destination}}) }}">
-															{{ "Download PDF"|t }}
-														</a>
-													{% endif %}
-												</li>
-												<li>
-													{% if item.invoice_xml is not empty %}
-														<a class="dropdown-item" href="{{ item.invoice_xml }}" target="_blank">
-															{{ "View XML"|t }}
-														</a>
-													{% else %}
-														<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"type": "xml", "uuid": item.uuid}, {"query" : {"destination" : filter.destination}}) }}">
-															{{ "Download XML"|t }}
-														</a>
-													{% endif %}
-												</li>
-												<li>
-													{% if item.invoice_pdf is empty and  item.invoice_xml is empty %}
-														<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"type": "all", "uuid": item.uuid}, {"query" : {"destination" : filter.destination}}) }}">
-															{{ "Download PDF & XML"|t }}
-														</a>
-													{% endif %}
-												</li>
-												{% if item.invoice_accountant is empty %}
-													<li>
-														<a type="button" class="btn-uuid-invoice dropdown-item" data-bs-toggle="modal" data-bs-target="#uuidInvoiceModal" data-invoice-uuid="{{ item.uuid }}">
-															{{ "Invoice accountant"|t }}
-														</a>
-													</li>
-												{% endif %}
-											</ul>
-										</td>
-									</td>
-								</tr>
-							{% endfor %}
-						</tbody>
-					</table>
+			<div class="invoice-summary row g-2 mb-2 text-start">
+				<div class="col-6 col-xl-3">
+					<div class="summary-card h-100">
+						<div class="summary-label">{{ "Number of invoices"|t }}</div>
+						<div class="summary-value">{{ filter.summary.count|number_format(0, ",", ".") }}</div>
+					</div>
+				</div>
+				<div class="col-6 col-xl-3">
+					<div class="summary-card h-100">
+						<div class="summary-label">{{ "Amount without vat"|t }}</div>
+						<div class="summary-value">{{ filter.summary.amount_without_vat|number_format(0, ",", ".") }}</div>
+					</div>
+				</div>
+				<div class="col-6 col-xl-3">
+					<div class="summary-card h-100">
+						<div class="summary-label">{{ "Vat amount"|t }}</div>
+						<div class="summary-value">{{ filter.summary.vat_amount|number_format(0, ",", ".") }}</div>
+					</div>
+				</div>
+				<div class="col-6 col-xl-3">
+					<div class="summary-card summary-card-total h-100">
+						<div class="summary-label">{{ "Total amount"|t }}</div>
+						<div class="summary-value">{{ filter.summary.total_amount|number_format(0, ",", ".") }}</div>
+					</div>
 				</div>
 			</div>
-			{{ filter.pager }}
+			<div class="invoice-toolbar d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+				<div class="d-flex align-items-center gap-2">
+					<label class="mb-0 text-nowrap small text-muted" for="invoice-limit-in">{{ "Rows displayed"|t }}</label>
+					<select id="invoice-limit-in" class="form-select form-select-sm invoice-limit">
+						{% for limit in filter.option_limit %}
+							<option value="{{ limit }}" {% if filter.limit == limit %} selected {% endif %}>{{ limit }}</option>
+						{% endfor %}
+					</select>
+					<span class="small text-muted text-nowrap">
+						{{ "Showing @showing / @total"|t({"@showing": data|length, "@total": filter.summary.count}) }}
+					</span>
+				</div>
+				<div class="d-flex align-items-center gap-2">
+					<div class="dropdown">
+						<button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle text-nowrap" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+							<i class="bi bi-layout-three-columns me-1"></i>{{ "Columns"|t }}
+						</button>
+						<ul class="dropdown-menu dropdown-menu-end invoice-column-menu p-2"></ul>
+					</div>
+					<button type="button" class="btn btn-success btn-sm text-nowrap btn-export-excel">
+						<i class="bi bi-file-earmark-excel me-1"></i>{{ "Export Excel"|t }}
+					</button>
+				</div>
+			</div>
+
+			<div class="flex-grow-1 min-h-0 min-w-0 invoice-table-wrapper">
+				<table class="table table-hover table-bordered table-striped invoice-table"
+					data-table-key="input-invoice" data-export-name="{{ "List of input invoices"|t }}">
+					<thead class="text-center">
+						<tr>
+							<th class="text-nowrap" data-col-lock="1" data-col-sort="0" data-col-index="1">Stt</th>
+							<th class="text-nowrap" data-col-export="0" data-col-sort="0">Tệp</th>
+							<th class="text-nowrap">Số hóa đơn</th>
+							<th class="text-nowrap">Ngày hóa đơn</th>
+							<th class="text-nowrap">Mã cơ quan thuế</th>
+							<th class="text-nowrap">Kết quả kiểm tra</th>
+							<th class="text-nowrap">Tên người bán</th>
+							<th class="text-nowrap">Địa chỉ người bán</th>
+							<th class="text-nowrap">MST người bán</th>
+							<th class="text-nowrap">Mẫu số</th>
+							<th class="text-nowrap">Kí hiệu</th>
+							<th class="text-nowrap">Thanh tiền trước thuế</th>
+							<th class="text-nowrap">Tổng tiền thuế</th>
+							<th class="text-nowrap">Tổng tiền</th>
+							<th class="text-nowrap">Trạng thái hóa đơn</th>
+							<th class="text-nowrap">Hóa đơn liên quan</th>
+							<th class="text-nowrap">Hạn thanh toán</th>
+							<th class="text-nowrap">Trạng thái thanh toán</th>
+							<th class="text-nowrap">Tiền chưa thanh toán</th>
+							<th class="text-nowrap">Tên người mua</th>
+							<th class="text-nowrap">Địa chỉ người mua</th>
+							<th class="text-nowrap">MST người mua</th>
+							<th class="text-nowrap">Số chứng từ</th>
+							<th class="text-nowrap">Người hạch toán</th>
+							<th class="text-nowrap">Ngày hạch toán</th>
+							<th class="text-nowrap">Biển số xe</th>
+							<th class="text-nowrap" data-col-lock="1" data-col-export="0" data-col-sort="0">{{ "Action"|t }}</th>
+						</tr>
+					</thead>
+					<tbody>
+						{% for item in data %}
+							<tr>
+								<td class="text-center" data-value="{{ loop.index }}">{{ loop.index }}</td>
+								<td class="text-center">
+									{% if item.invoice_pdf is not empty %}
+										<a href="{{ item.invoice_pdf }}" target="_blank">
+											<i class="bi bi-filetype-pdf fs-5"></i>
+										</a>
+									{% endif %}
+								</td>
+								<td class="text-center">
+									<a href="{{ path('<front>') }}invoice-uuid/{{ item.uuid }}" class="d-inline-block m-0 text-success text-decoration-none fw-medium use-ajax" data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
+										{{ item.invoice_no }}
+									</a>
+								</td>
+								<td class="text-center">
+									{{ item.invoice_date| date("d/m/Y") }}
+								</td>
+								<td class="text-center">
+									{{ item.invoice_mccqt }}
+								</td>
+								<td class="text-center">
+									{{ item.invoice_status_custorm}}
+								</td>
+								<td>
+									{{ item.invoice_seller_name }}
+								</td>
+								<td>
+									{{ item.invoice_seller_address }}
+								</td>
+								<td>
+									{{ item.invoice_seller_taxcode }}
+								</td>
+								<td>
+									{{ item.invoice_pattern }}
+								</td>
+								<td>
+									{{ item.invoice_serial }}
+								</td>
+								<td class="text-end" data-value="{{ item.invoice_amount_without_vat }}">
+									{{ item.invoice_amount_without_vat|number_format(0, ",", ".") }}
+								</td>
+								<td class="text-end" data-value="{{ item.invoice_vat_amount }}">
+									{{ item.invoice_vat_amount|number_format(0, ",", ".") }}
+								</td>
+								<td class="text-end" data-value="{{ item.invoice_total_amount }}">
+									{{ item.invoice_total_amount|number_format(0, ",", ".") }}
+								</td>
+								<td>
+									{{ item.invoice_status }}
+								</td>
+								<td></td>
+								<td>
+									{{ item.invoice_payment_due_date| date("d/m/Y") }}
+								</td>
+								<td>
+									{{ item.invoice_payment_status }}
+								</td>
+								<td>
+									{{ item.invoice_total_amount_not_payment|number_format(0, ",", ".") }}
+								</td>
+								<td>
+									{{ item.invoice_buyer_name }}
+								</td>
+								<td>
+									{{ item.invoice_buyer_address }}
+								</td>
+								<td>
+									{{ item.invoice_buyer_taxcode }}
+								</td>
+								<td class="text-center">
+									{% if item.invoice_refno is not empty %}
+										<p class="mb-0">{{ item.invoice_refno }}</p>
+									{% endif %}
+								</td>
+								<td class="text-center">
+									{% if item.invoice_accountant is not empty %}
+										<p class="mb-0">{{ item.invoice_accountant }}</p>
+									{% endif %}
+								</td>
+								<td class="text-center">
+									{% if item.invoice_accountant_date is not empty %}
+										<small>{{ item.invoice_accountant_date| date("d/m/Y") }}</small>
+									{% endif %}
+								</td>
+								<td>
+									{{ item.invoice_license_plate }}
+								</td>
+								<td>
+									<div class="dropdown">
+										<button class="btn btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+											<i class="bi bi-list"></i>
+										</button>
+										<ul class="dropdown-menu">
+											{% if item.invoice_import != 1 %}
+												<li>
+													<a href="{{ path('<front>') }}accountant/invoice/{{ item.uuid }}" class="dropdown-item use-ajax" data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
+														{{ "Import"|t }}
+													</a>
+												</li>
+											{% endif %}
+											<li>
+												{% if item.invoice_pdf is not empty %}
+													<a class="dropdown-item" href="{{ item.invoice_pdf }}" target="_blank">
+														{{ "View PDF"|t }}
+													</a>
+												{% else %}
+													<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"type": "pdf", "uuid": item.uuid}, {"query" : {"destination" : filter.destination}}) }}">
+														{{ "Download PDF"|t }}
+													</a>
+												{% endif %}
+											</li>
+											<li>
+												{% if item.invoice_xml is not empty %}
+													<a class="dropdown-item" href="{{ item.invoice_xml }}" target="_blank">
+														{{ "View XML"|t }}
+													</a>
+												{% else %}
+													<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"type": "xml", "uuid": item.uuid}, {"query" : {"destination" : filter.destination}}) }}">
+														{{ "Download XML"|t }}
+													</a>
+												{% endif %}
+											</li>
+											<li>
+												{% if item.invoice_pdf is empty and  item.invoice_xml is empty %}
+													<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_file_invoice", {"type": "all", "uuid": item.uuid}, {"query" : {"destination" : filter.destination}}) }}">
+														{{ "Download PDF & XML"|t }}
+													</a>
+												{% endif %}
+											</li>
+											{% if item.invoice_accountant is empty %}
+												<li>
+													<a type="button" class="btn-uuid-invoice dropdown-item" data-bs-toggle="modal" data-bs-target="#uuidInvoiceModal" data-invoice-uuid="{{ item.uuid }}">
+														{{ "Invoice accountant"|t }}
+													</a>
+												</li>
+											{% endif %}
+										</ul>
+									</div>
+								</td>
+							</tr>
+						{% endfor %}
+					</tbody>
+				</table>
+			</div>
 		</div>
 	</div>
 </div>
@@ -201,7 +299,7 @@
 						</div>
 						<div class="col-4">
 							<span>{{ "Skip"|t }}</span>
-							<input class="form-control" name="skip" value="{{data|length}}"/>
+							<input class="form-control" name="skip" value="0"/>
 						</div>
 					</div>
 					<input type="hidden" class="d-none" name="destination" value="{{filter.destination}}"/>

@@ -4,6 +4,7 @@ e_invoice:
       css/e-invoice.css: {}
   js:
     js/e-invoice.js: {}
+    js/e-invoice-table.js: {}
   dependencies:
     - core/jquery
     - core/drupal

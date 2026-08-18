@@ -10,7 +10,6 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
-use Drupal\e_invoice\Service\GetConfigInvoice;
 use Drupal\e_invoice\Service\HandleInvoice;
 use Drupal\erp_e_invoice\InvoiceService;
 use Drupal\taxonomy\TermInterface;
@@ -27,7 +26,6 @@ class InvoiceInController extends ControllerBase {
     protected EntityFieldManagerInterface $entityFieldManager,
     protected FileUrlGeneratorInterface $fileUrlGenerator,
     protected UuidInterface $uuid,
-    protected GetConfigInvoice $config,
     protected HandleInvoice $handleInvoice,
     protected InvoiceService $invoiceService,
   ) {}
@@ -40,7 +38,6 @@ class InvoiceInController extends ControllerBase {
       $container->get("entity_field.manager"),
       $container->get("file_url_generator"),
       $container->get("uuid"),
-      $container->get("e_invoice.get_config"),
       $container->get("e_invoice.handle_invoice"),
       $container->get("erp_e_invoice.invoice_service"),
     );
@@ -53,7 +50,10 @@ class InvoiceInController extends ControllerBase {
     $data = [];
 
     $data_invoices = $this->invoiceService->getInvoice($request, "input_invoices");
+
+    $list_status = $this->invoiceService->allowedValueField("input_invoices", "field_invoice_status");
     $list_status_custorm = $this->invoiceService->allowedValueField("input_invoices", "field_invoice_status_custorm");
+    $list_status_payment = $this->invoiceService->allowedValueField("input_invoices", "field_amount_payment_status");
 
     /** @var \Drupal\e_invoice\Entity\Invoice $invoice */
     foreach ($data_invoices["invoices"] as $invoice) {
@@ -70,21 +70,36 @@ class InvoiceInController extends ControllerBase {
 
       $data[] = [
         "uuid" => $invoice->uuid(),
-        "invoice_name" => $invoice->label(),
+        "invoice_id" => $invoice->id(),
         "invoice_no" => $invoice->get("field_invoice_no")->value,
         "invoice_date" => $invoice->get("field_invoice_date")->value,
+        "invoice_mccqt" => $invoice->get("field_invoice_mccqt")->value,
+        "invoice_seller_name" => $invoice->get("field_invoice_seller_name")->value,
+        "invoice_seller_taxcode" => $invoice->get("field_invoice_seller_taxcode")->value,
+        "invoice_seller_address" => $invoice->get("field_invoice_seller_address")->value,
         "invoice_pattern" => $invoice->get("field_invoice_pattern")->value,
         "invoice_serial" => $invoice->get("field_invoice_serial")->value,
-        "invoice_seller_name" => $invoice->get("field_invoice_seller_name")->value ?? "",
-        "invoice_seller_taxcode" => $invoice->get("field_invoice_seller_taxcode")->value ?? "",
         "invoice_amount_without_vat" => $invoice->get("field_invoice_amount_without_vat")->value ?? 0,
         "invoice_vat_amount" => $invoice->get("field_invoice_vat_amount")->value ?? 0,
         "invoice_total_amount" => $invoice->get("field_invoice_total_amount")->value ?? 0,
-        "invoice_accountant" => $invoice->get("field_invoice_accountant")->value ?? "",
-        "invoice_accountant_date" => $invoice->get("field_invoice_accounting_date")->value ?? "",
+        "invoice_payment_due_date" => $invoice->get("field_invoice_payment_due_date")->value,
+        "invoice_total_amount_not_payment" => $invoice->get("field_total_amount_not_payment")->value,
+        "invoice_buyer_name" => $invoice->get("field_invoice_buyer_name")->value,
+        "invoice_buyer_taxcode" => $invoice->get("field_invoice_buyer_taxcode")->value,
+        "invoice_buyer_address" => $invoice->get("field_invoice_buyer_address")->value,
+        "invoice_refno"  => $invoice->get("field_invoice_refno")->value,
+        "invoice_accountant" => $invoice->get("field_invoice_accountant")->value,
+        "invoice_accountant_date" => $invoice->get("field_invoice_accounting_date")->value,
+        "invoice_license_plate" => $invoice->get("field_invoice_license_plate")->value,
         "invoice_import" => $invoice->get("field_invoice_import")->value ?? 0,
         "invoice_pdf" => $invoice_pdf,
         "invoice_xml" => $invoice_xml,
+        "invoice_status" => $invoice->hasField("field_invoice_status")
+          ? ($list_status[$invoice->get("field_invoice_status")->value] ?? NULL)
+          : NULL,
+        "invoice_payment_status" => $invoice->hasField("field_amount_payment_status")
+          ? ($list_status_payment[$invoice->get("field_amount_payment_status")->value] ?? NULL)
+          : NULL,
         "invoice_status_custorm" => $invoice->hasField("field_invoice_status_custorm")
           ? ($list_status_custorm[$invoice->get("field_invoice_status_custorm")->value] ?? NULL)
           : NULL,
@@ -97,16 +112,20 @@ class InvoiceInController extends ControllerBase {
       "#filter" => [
         "count_import" => $data_invoices["count_import"],
         "date" => [
-          "start" => $data_invoices["date"]["start"] ? date("Y-m-d", strtotime($data_invoices["date"]["start"])) : NULL,
-          "end" => $data_invoices["date"]["end"] ? date("Y-m-d", strtotime($data_invoices["date"]["end"])) : NULL,
+          "start" => $data_invoices["date"]["start"]
+            ? date("Y-m-d", strtotime($data_invoices["date"]["start"]))
+            : NULL,
+          "end" => $data_invoices["date"]["end"]
+            ? date("Y-m-d", strtotime($data_invoices["date"]["end"]))
+            : NULL,
         ],
         "company_id" => $data_invoices["company_id"],
         "option_company" => $data_invoices["option_company"],
+        "limit" => $data_invoices["limit"],
+        "option_limit" => $data_invoices["option_limit"],
+        "summary" => $data_invoices["summary"],
         "destination" => $request->getRequestUri(),
         "current_user" => $this->currentUser()->getAccountName(),
-        "pager" => [
-          "#type" => "pager",
-        ],
       ],
       "#attached" => [
         "library" => [
@@ -169,7 +188,7 @@ class InvoiceInController extends ControllerBase {
     }
 
     if (!empty($invoice["data"])) {
-      $this->createImportDocument($invoice["data"]);
+      // $this->createImportDocument($invoice["data"]);
     }
 
     return new RedirectResponse($redirect);
@@ -230,7 +249,7 @@ class InvoiceInController extends ControllerBase {
       return $custom;
     }
 
-    $file = $this->handleInvoice->fileInputInvoice($custom["invoice"], $custom["config"]);
+    $file = $this->handleInvoice->fileInputInvoice($custom["invoice"], $custom["config"], $list_type[$type]);
 
     if (!$file["success"]) {
       $this->messenger()->addError($file["message"]);

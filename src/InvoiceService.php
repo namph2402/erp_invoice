@@ -35,6 +35,28 @@ class InvoiceService {
   ];
 
   /**
+   * Số dòng cho phép hiển thị trong bảng danh sách hóa đơn.
+   *
+   * Danh sách không phân trang nữa nên phải chặn số dòng người dùng chọn theo
+   * danh sách trắng, tránh việc tải toàn bộ hóa đơn ra màn hình.
+   */
+  public const ALLOWED_LIMITS = [20, 50, 100, 200, 500, 1000];
+
+  /**
+   * Số dòng mặc định khi người dùng chưa chọn.
+   */
+  public const DEFAULT_LIMIT = 50;
+
+  /**
+   * Các trường tiền cần cộng tổng theo bộ lọc.
+   */
+  private const SUM_FIELDS = [
+    "amount_without_vat" => "field_invoice_amount_without_vat",
+    "vat_amount" => "field_invoice_vat_amount",
+    "total_amount" => "field_invoice_total_amount",
+  ];
+
+  /**
    * Constructs an InvoiceService object.
    *
    * @param EntityTypeManagerInterface $entityTypeManager
@@ -117,10 +139,8 @@ class InvoiceService {
       ? "erp_e_invoice.e_invoice_list_out"
       : "erp_e_invoice.e_invoice_list_in";
 
-    // Chuyển hướng trang.
     $redirect = $this->safeRedirect($destination, $routing);
 
-    // Tìm hóa đơn theo uuid.
     $invoices = $this->entityTypeManager
       ->getStorage("invoice")
       ->loadByProperties([
@@ -135,8 +155,6 @@ class InvoiceService {
     $company_id = NULL;
     $config_company = [];
 
-    // Đánh khoá theo uuid: nhà cung cấp trả kết quả theo RefID (chính là uuid),
-    // khoá theo id entity thì không ghép ngược lại được.
     $invoices = array_combine(
       array_map(static fn ($invoice) => $invoice->uuid(), $invoices),
       $invoices
@@ -144,7 +162,6 @@ class InvoiceService {
 
     /** @var \Drupal\e_invoice\Entity\Invoice $invoice */
     foreach ($invoices as $invoice) {
-      // Các hóa đơn cùng công ty dùng chung cấu hình, không cần lấy lại.
       $invoice_company_id = $invoice->hasField("field_invoice_company")
         ? $invoice->get("field_invoice_company")->target_id
         : NULL;
@@ -154,15 +171,12 @@ class InvoiceService {
           continue;
         }
 
-        // Một lần xử lý chỉ dùng được một cấu hình phát hành. Trộn nhiều công
-        // ty sẽ khiến hóa đơn phát hành bằng cấu hình của công ty khác.
         $this->messenger->addError(
           $this->t("Please select invoices belonging to the same company.")
         );
         return new RedirectResponse($redirect);
       }
 
-      // Tìm công ty của hóa đơn điện tử.
       $company_entity = $invoice->hasField("field_invoice_company")
         ? $invoice->get("field_invoice_company")->entity
         : NULL;
@@ -174,7 +188,6 @@ class InvoiceService {
 
       $company_id = $company_entity->id();
 
-      // Lấy cấu hình hóa đơn của công ty.
       $config_entity = $company_entity->hasField("field_config_invoice")
         ? $company_entity->get("field_config_invoice")->entity
         : NULL;
@@ -217,6 +230,7 @@ class InvoiceService {
     $import = $request->query->get("import");
     $export = $request->query->get("export");
     $status = $request->query->get("status") ?? "";
+    $limit = $this->getLimit($request);
 
     switch ($request->query->get("search_date")) {
       case 'last_month':
@@ -258,7 +272,6 @@ class InvoiceService {
       ->sort("field_invoice_date", "DESC")
       ->sort("field_invoice_status", "ASC")
       ->sort("created", "DESC")
-      ->pager(20)
       ->accessCheck(TRUE);
 
     if ($import == "true") {
@@ -292,8 +305,14 @@ class InvoiceService {
       }
     }
 
-    $invoice_ids = $invoices_query->execute();
+    // Bảng không phân trang nữa: bản sao không giới hạn dòng dùng để cộng tổng
+    // tiền của cả bộ lọc, còn truy vấn chính chỉ lấy đúng số dòng cần hiển thị.
+    $summary_query = clone $invoices_query;
+
+    $invoice_ids = $invoices_query->range(0, $limit)->execute();
     $list_invoices = $invoiceManage->loadMultiple($invoice_ids);
+
+    $summary = $this->sumInvoice($summary_query->execute());
 
     if ($type === "input_invoices") {
       $invoices_query = $invoiceManage->getQuery()
@@ -331,6 +350,9 @@ class InvoiceService {
       "invoices" => $list_invoices,
       "count_import" => $count_import,
       "count_export" => $count_export,
+      "limit" => $limit,
+      "option_limit" => self::ALLOWED_LIMITS,
+      "summary" => $summary,
       "date" => [
         "start" => $start_date,
         "end" => $end_date,
@@ -339,15 +361,70 @@ class InvoiceService {
   }
 
   /**
-   * Lấy các giá trị trường select list.
+   * Số dòng hiển thị người dùng chọn trên bảng danh sách.
    *
-   * @param string $bundle
-   *   Bundle của entity invoice.
-   * @param string $field
-   *   Tên field.
+   * @param \Symfony\Component\HttpFoundation\Request $request
+   *   Request hiện tại.
+   *
+   * @return int
+   *   Số dòng nằm trong danh sách trắng.
+   */
+  public function getLimit(Request $request): int {
+    $limit = (int) $request->query->get("limit");
+
+    return in_array($limit, self::ALLOWED_LIMITS, TRUE)
+      ? $limit
+      : self::DEFAULT_LIMIT;
+  }
+
+  /**
+   * Cộng tổng tiền của toàn bộ hóa đơn khớp bộ lọc.
+   *
+   * Cộng thẳng trên bảng field thay vì load entity, vì số hóa đơn khớp bộ lọc
+   * thường lớn hơn nhiều số dòng đang hiển thị.
+   *
+   * @param array $ids
+   *   Danh sách id hóa đơn khớp bộ lọc.
    *
    * @return array
-   *   Danh sách giá trị cho phép, rỗng khi bundle không có field này.
+   *   Tổng tiền trước thuế, tiền thuế, tổng tiền và số hóa đơn.
+   */
+  public function sumInvoice(array $ids): array {
+    $summary = [
+      "count" => count($ids),
+      "amount_without_vat" => 0,
+      "vat_amount" => 0,
+      "total_amount" => 0,
+    ];
+
+    if (empty($ids)) {
+      return $summary;
+    }
+
+    $query = $this->connection->select("invoice", "i");
+    $query->condition("i.id", $ids, "IN");
+
+    foreach (self::SUM_FIELDS as $key => $field) {
+      $alias = $query->leftJoin(
+        "invoice__" . $field,
+        "sum_" . $key,
+        "%alias.entity_id = i.id AND %alias.deleted = 0 AND %alias.delta = 0"
+      );
+
+      $query->addExpression("SUM(" . $alias . "." . $field . "_value)", $key);
+    }
+
+    $result = $query->execute()->fetchAssoc() ?: [];
+
+    foreach (array_keys(self::SUM_FIELDS) as $key) {
+      $summary[$key] = (float) ($result[$key] ?? 0);
+    }
+
+    return $summary;
+  }
+
+  /**
+   * Lấy các giá trị trường select list.
    */
   public function allowedValueField(string $bundle, string $field): array {
     $field_config = $this->entityTypeManager
@@ -372,12 +449,6 @@ class InvoiceService {
 
   /**
    * Lấy cấu hình hóa đơn điện tử công ty qua taxonomy.
-   *
-   * @param TermInterface $config_entity
-   *   Term cấu hình hóa đơn của công ty.
-   *
-   * @return array
-   *   Cấu hình đã chuẩn hoá, token được làm mới nếu hết hạn.
    */
   public function getConfig(TermInterface $config_entity): array {
     return $this->config->handle($config_entity);
