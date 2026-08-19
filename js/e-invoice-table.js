@@ -1,16 +1,20 @@
 /**
  * @file
- * Bảng danh sách hóa đơn: chọn số dòng hiển thị, ẩn hiện cột, sắp xếp và xuất Excel.
+ * Bảng danh sách hóa đơn: phân trang, ẩn hiện cột, sắp xếp và xuất Excel.
  *
- * Danh sách không phân trang nữa nên số dòng do người dùng chọn qua select
- * (đẩy lên query "limit"), còn cột ẩn hiện lưu ở localStorage theo từng bảng.
- * Sắp xếp chạy ngay trên trình duyệt với các dòng đang hiển thị.
- * File Excel xuất ra chỉ gồm các cột đang hiển thị.
+ * Máy chủ trả về toàn bộ hóa đơn khớp bộ lọc, nên phân trang chạy ngay trên
+ * trình duyệt: mỗi trang chỉ hiện số dòng người dùng chọn, không gọi lại máy chủ.
+ * Số dòng mỗi trang và cột ẩn hiện lưu ở localStorage theo từng bảng.
+ * Sắp xếp cũng chạy trên trình duyệt với toàn bộ dòng của bảng.
+ * File Excel xuất ra gồm mọi dòng (kể cả trang khác) theo các cột đang hiển thị.
  */
 (function (Drupal, once) {
   'use strict';
 
   var STORAGE_PREFIX = 'erp_e_invoice.columns.';
+  var PAGE_SIZE_PREFIX = 'erp_e_invoice.page-size.';
+  // Số trang hiện hai bên trang đang xem, phần còn lại rút gọn bằng dấu …
+  var PAGE_WINDOW = 2;
 
   /**
    * Mô tả các cột của bảng theo thứ tự trong thead.
@@ -25,7 +29,7 @@
         index: index,
         th: th,
         label: label || Drupal.t('Column @number', { '@number': index + 1 }),
-        // Cột khoá (số thứ tự, chọn dòng, thao tác) luôn hiển thị.
+        key: th.dataset.colKey || label || 'col-' + index,
         lock: th.dataset.colLock === '1',
         exportable: th.dataset.colExport !== '0'
       };
@@ -36,6 +40,7 @@
     try {
       var raw = window.localStorage.getItem(STORAGE_PREFIX + key);
       var list = raw ? JSON.parse(raw) : [];
+
       return Array.isArray(list) ? list : [];
     }
     catch (e) {
@@ -53,6 +58,41 @@
   }
 
   /**
+   * Đổi phần đã lưu thành danh sách tên cột đang ẩn.
+   *
+   * Bản lưu cũ chứa số thứ tự cột nên vẫn phải nhận, cột đã bỏ khỏi bảng hoặc
+   * cột khoá thì loại ra.
+   */
+  function toHiddenKeys(list, columns) {
+    var keys = [];
+
+    columns.forEach(function (column) {
+      if (column.lock) {
+        return;
+      }
+
+      var stored = list.indexOf(column.key) !== -1 || list.indexOf(column.index) !== -1;
+
+      if (stored && keys.indexOf(column.key) === -1) {
+        keys.push(column.key);
+      }
+    });
+
+    return keys;
+  }
+
+  /**
+   * Số thứ tự các cột đang ẩn, dùng để thao tác trên ô của bảng.
+   */
+  function toHiddenIndexes(keys, columns) {
+    return columns.filter(function (column) {
+      return !column.lock && keys.indexOf(column.key) !== -1;
+    }).map(function (column) {
+      return column.index;
+    });
+  }
+
+  /**
    * Ẩn hiện cột trên toàn bộ dòng của bảng.
    */
   function applyColumns(table, hidden) {
@@ -64,11 +104,28 @@
   }
 
   /**
+   * Ẩn hiện cột theo đúng phần đã lưu của bảng.
+   */
+  function restoreColumns(table, key) {
+    var columns = getColumns(table);
+
+    applyColumns(table, toHiddenIndexes(toHiddenKeys(readHidden(key), columns), columns));
+  }
+
+  /**
    * Dựng danh sách checkbox chọn cột.
+   *
+   * Mỗi lần tích bỏ tích là ghi lại localStorage theo từng bảng, nên lần vào
+   * sau các cột đã tắt vẫn giữ nguyên.
    */
   function buildColumnMenu(table, menu, key) {
     var columns = getColumns(table);
-    var hidden = readHidden(key);
+    var hidden = toHiddenKeys(readHidden(key), columns);
+
+    function apply() {
+      saveHidden(key, hidden);
+      applyColumns(table, toHiddenIndexes(hidden, columns));
+    }
 
     menu.innerHTML = '';
 
@@ -85,20 +142,19 @@
       label.className = 'dropdown-item d-flex align-items-center gap-2 py-1 mb-0';
       checkbox.type = 'checkbox';
       checkbox.className = 'form-check-input m-0 flex-shrink-0';
-      checkbox.checked = hidden.indexOf(column.index) === -1;
+      checkbox.checked = hidden.indexOf(column.key) === -1;
       text.textContent = column.label;
 
       checkbox.addEventListener('change', function () {
-        var list = readHidden(key).filter(function (index) {
-          return index !== column.index;
+        hidden = hidden.filter(function (item_key) {
+          return item_key !== column.key;
         });
 
         if (!this.checked) {
-          list.push(column.index);
+          hidden.push(column.key);
         }
 
-        saveHidden(key, list);
-        applyColumns(table, list);
+        apply();
       });
 
       label.appendChild(checkbox);
@@ -117,8 +173,8 @@
     resetButton.className = 'dropdown-item text-primary';
     resetButton.textContent = Drupal.t('Show all columns');
     resetButton.addEventListener('click', function () {
-      saveHidden(key, []);
-      applyColumns(table, []);
+      hidden = [];
+      apply();
       menu.querySelectorAll('input[type="checkbox"]').forEach(function (input) {
         input.checked = true;
       });
@@ -126,7 +182,7 @@
     reset.appendChild(resetButton);
     menu.appendChild(reset);
 
-    applyColumns(table, hidden);
+    applyColumns(table, toHiddenIndexes(hidden, columns));
   }
 
   /* ------------------------------------------------------------------------
@@ -307,8 +363,13 @@
 
   /**
    * Gắn nút sắp xếp lên tiêu đề cột: tăng dần > giảm dần > bỏ sắp xếp.
+   *
+   * @param {HTMLTableElement} table
+   *   Bảng danh sách.
+   * @param {Function} onSort
+   *   Gọi lại sau khi đổi thứ tự dòng, dùng để dựng lại phân trang.
    */
-  function setupSort(table) {
+  function setupSort(table, onSort) {
     var tbody = table.tBodies[0];
 
     if (!tbody) {
@@ -358,8 +419,231 @@
           + (direction === 'asc' ? 'bi-sort-down-alt' : (direction === 'desc' ? 'bi-sort-down' : 'bi-arrow-down-up'));
 
         sortTable(table, column.index, direction);
+
+        if (onSort) {
+          onSort();
+        }
       });
     });
+  }
+
+  /* ------------------------------------------------------------------------
+   * Phân trang trên trình duyệt.
+   * --------------------------------------------------------------------- */
+
+  function readPageSize(key, fallback) {
+    try {
+      var raw = window.localStorage.getItem(PAGE_SIZE_PREFIX + key);
+      var size = raw === null ? NaN : Number(raw);
+
+      return isNaN(size) || size < 0 ? fallback : size;
+    }
+    catch (e) {
+      return fallback;
+    }
+  }
+
+  function savePageSize(key, size) {
+    try {
+      window.localStorage.setItem(PAGE_SIZE_PREFIX + key, String(size));
+    }
+    catch (e) {
+      // Trình duyệt chặn localStorage thì chỉ mất phần ghi nhớ, không chặn thao tác.
+    }
+  }
+
+  function formatNumber(value) {
+    return value.toLocaleString('vi-VN');
+  }
+
+  /**
+   * Các số trang cần vẽ, phần bị lược bỏ trả về null (dấu …).
+   */
+  function getPageItems(current, count) {
+    var items = [];
+    var previous = 0;
+
+    for (var page = 1; page <= count; page++) {
+      var keep = page === 1
+        || page === count
+        || Math.abs(page - current) <= PAGE_WINDOW;
+
+      if (!keep) {
+        continue;
+      }
+
+      if (previous && page - previous > 1) {
+        items.push(null);
+      }
+
+      items.push(page);
+      previous = page;
+    }
+
+    return items;
+  }
+
+  function createPageItem(label, page, options) {
+    var item = document.createElement('li');
+    var button = document.createElement(page === null ? 'span' : 'button');
+
+    item.className = 'page-item'
+      + (options.disabled ? ' disabled' : '')
+      + (options.active ? ' active' : '');
+    button.className = 'page-link';
+    button.textContent = label;
+
+    if (page === null) {
+      item.classList.add('disabled');
+    }
+    else {
+      button.type = 'button';
+      button.disabled = !!options.disabled;
+      button.addEventListener('click', function () {
+        options.go(page);
+      });
+    }
+
+    if (options.active) {
+      item.setAttribute('aria-current', 'page');
+    }
+
+    item.appendChild(button);
+
+    return item;
+  }
+
+  /**
+   * Chia trang cho các dòng đang có sẵn trong bảng.
+   *
+   * @return {Object|null}
+   *   Đối tượng có reset() để dựng lại phân trang sau khi đổi thứ tự dòng.
+   */
+  function setupPagination(table, scope, key) {
+    var tbody = table.tBodies[0];
+
+    if (!tbody) {
+      return null;
+    }
+
+    var select = scope.querySelector('.invoice-page-size');
+    var pages = scope.querySelector('.invoice-pages');
+    var range = scope.querySelector('.invoice-range');
+    var nav = pages ? pages.closest('.invoice-pagination') : null;
+
+    // Người dùng chọn 0 nghĩa là xem hết, không chia trang.
+    var fallback = select ? Number(select.value) || 0 : 0;
+    var size = readPageSize(key, fallback);
+    var current = 1;
+
+    if (select) {
+      var hasOption = Array.prototype.some.call(select.options, function (option) {
+        return Number(option.value) === size;
+      });
+
+      if (hasOption) {
+        select.value = String(size);
+      }
+      else {
+        size = fallback;
+      }
+    }
+
+    function renderRange(total, start, end) {
+      if (!range) {
+        return;
+      }
+
+      range.textContent = total
+        ? Drupal.t('Showing @from - @to / @total', {
+          '@from': formatNumber(start + 1),
+          '@to': formatNumber(end),
+          '@total': formatNumber(total)
+        })
+        : Drupal.t('No data');
+    }
+
+    function renderPages(count) {
+      if (!pages) {
+        return;
+      }
+
+      pages.innerHTML = '';
+
+      if (nav) {
+        nav.classList.toggle('d-none', count < 2);
+      }
+
+      if (count < 2) {
+        return;
+      }
+
+      pages.appendChild(createPageItem('«', current - 1, {
+        disabled: current === 1,
+        go: go
+      }));
+
+      getPageItems(current, count).forEach(function (page) {
+        pages.appendChild(page === null
+          ? createPageItem('…', null, {})
+          : createPageItem(formatNumber(page), page, {
+            active: page === current,
+            go: go
+          }));
+      });
+
+      pages.appendChild(createPageItem('»', current + 1, {
+        disabled: current === count,
+        go: go
+      }));
+    }
+
+    function render() {
+      var rows = tbody.rows;
+      var total = rows.length;
+      var step = size > 0 ? size : total;
+      var count = step > 0 ? Math.ceil(total / step) : 1;
+
+      current = Math.min(Math.max(current, 1), Math.max(count, 1));
+
+      var start = step > 0 ? (current - 1) * step : 0;
+      var end = step > 0 ? Math.min(start + step, total) : total;
+
+      Array.prototype.forEach.call(rows, function (row, position) {
+        row.classList.toggle('d-none', position < start || position >= end);
+      });
+
+      renderRange(total, start, end);
+      renderPages(count);
+    }
+
+    function go(page) {
+      current = page;
+      render();
+
+      // Đổi trang thì xem lại từ đầu bảng.
+      var wrapper = table.closest('.invoice-table-wrapper');
+
+      if (wrapper) {
+        wrapper.scrollTop = 0;
+      }
+    }
+
+    if (select) {
+      select.addEventListener('change', function () {
+        size = Number(this.value) || 0;
+        savePageSize(key, size);
+        go(1);
+      });
+    }
+
+    render();
+
+    return {
+      reset: function () {
+        go(1);
+      }
+    };
   }
 
   /**
@@ -690,26 +974,21 @@
           buildColumnMenu(table, menu, key);
         }
         else {
-          applyColumns(table, readHidden(key));
+          restoreColumns(table, key);
         }
 
-        setupSort(table);
+        var pagination = setupPagination(table, scope, key);
+
+        setupSort(table, function () {
+          if (pagination) {
+            pagination.reset();
+          }
+        });
 
         scope.querySelectorAll('.btn-export-excel').forEach(function (button) {
           button.addEventListener('click', function () {
             exportTable(table);
           });
-        });
-      });
-
-      // Số dòng hiển thị: đẩy lên query để truy vấn lại từ máy chủ.
-      once('invoice-limit', '.invoice-limit', context).forEach(function (select) {
-        select.addEventListener('change', function () {
-          var url = new URL(window.location.href);
-
-          url.searchParams.set('limit', this.value);
-          url.searchParams.delete('page');
-          window.location.href = url.toString();
         });
       });
     }

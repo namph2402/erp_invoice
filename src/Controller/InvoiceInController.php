@@ -5,7 +5,6 @@ namespace Drupal\erp_e_invoice\Controller;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\File\FileUrlGeneratorInterface;
 use Drupal\Core\Entity\EntityFieldManagerInterface;
-use Drupal\Component\Uuid\UuidInterface;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -25,7 +24,6 @@ class InvoiceInController extends ControllerBase {
   public function __construct(
     protected EntityFieldManagerInterface $entityFieldManager,
     protected FileUrlGeneratorInterface $fileUrlGenerator,
-    protected UuidInterface $uuid,
     protected HandleInvoice $handleInvoice,
     protected InvoiceService $invoiceService,
   ) {}
@@ -37,7 +35,6 @@ class InvoiceInController extends ControllerBase {
     return new static(
       $container->get("entity_field.manager"),
       $container->get("file_url_generator"),
-      $container->get("uuid"),
       $container->get("e_invoice.handle_invoice"),
       $container->get("erp_e_invoice.invoice_service"),
     );
@@ -84,6 +81,7 @@ class InvoiceInController extends ControllerBase {
         "invoice_total_amount" => $invoice->get("field_invoice_total_amount")->value ?? 0,
         "invoice_payment_due_date" => $invoice->get("field_invoice_payment_due_date")->value,
         "invoice_total_amount_not_payment" => $invoice->get("field_total_amount_not_payment")->value,
+        "invoice_total_amount_payment" => $invoice->get("field_total_amount_payment")->value,
         "invoice_buyer_name" => $invoice->get("field_invoice_buyer_name")->value,
         "invoice_buyer_taxcode" => $invoice->get("field_invoice_buyer_taxcode")->value,
         "invoice_buyer_address" => $invoice->get("field_invoice_buyer_address")->value,
@@ -100,6 +98,7 @@ class InvoiceInController extends ControllerBase {
         "invoice_payment_status" => $invoice->hasField("field_amount_payment_status")
           ? ($list_status_payment[$invoice->get("field_amount_payment_status")->value] ?? NULL)
           : NULL,
+        "invoice_payment_status_value" => $invoice->get("field_amount_payment_status")->value,
         "invoice_status_custorm" => $invoice->hasField("field_invoice_status_custorm")
           ? ($list_status_custorm[$invoice->get("field_invoice_status_custorm")->value] ?? NULL)
           : NULL,
@@ -121,8 +120,9 @@ class InvoiceInController extends ControllerBase {
         ],
         "company_id" => $data_invoices["company_id"],
         "option_company" => $data_invoices["option_company"],
-        "limit" => $data_invoices["limit"],
-        "option_limit" => $data_invoices["option_limit"],
+        "page_size" => $data_invoices["page_size"],
+        "option_page_size" => $data_invoices["option_page_size"],
+        "option_payment_status" => $list_status_payment,
         "summary" => $data_invoices["summary"],
         "destination" => $request->getRequestUri(),
         "current_user" => $this->currentUser()->getAccountName(),
@@ -188,7 +188,7 @@ class InvoiceInController extends ControllerBase {
     }
 
     if (!empty($invoice["data"])) {
-      // $this->createImportDocument($invoice["data"]);
+      $this->createImportDocument($invoice["data"]);
     }
 
     return new RedirectResponse($redirect);
@@ -211,7 +211,7 @@ class InvoiceInController extends ControllerBase {
       "accountant_date" => !empty($data["accoutant-date"])
         ? date("Y-m-d", strtotime($data["accoutant-date"]))
         : date("Y-m-d"),
-      "ref_no" => $this->uuid->generate(),
+      "ref_no" => $data["accoutant-refno"],
     ];
 
     $invoice = $this->handleInvoice->accountingInvoice($custom["invoice"], $custom["config"], $param);
@@ -227,7 +227,72 @@ class InvoiceInController extends ControllerBase {
   }
 
   /**
-   * Pdf hóa đơn đầu vào.
+   * Cập nhật thông tin thanh toán hóa đơn đầu vào.
+   */
+  public function paymentInvoice(Request $request) {
+    $data = $request->request->all();
+    $array_uuid = explode(',', $data["invoice-uuid"] ?? "");
+
+    $custom = $this->invoiceService->getCustom($data["destination"] ?? NULL, $array_uuid, "in");
+    if ($custom instanceof Response) {
+      return $custom;
+    }
+
+    $param = [
+      "payment_date" => !empty($data["payment-date"])
+        ? date("Y-m-d", strtotime($data["payment-date"]))
+        : NULL,
+      "payment_pair" => $data["payment-pair"] ?? $this->currentUser()->getAccountName(),
+      "total_amount_payment" => isset($data["payment-amount"]) && $data["payment-amount"] !== ""
+        ? (float) $data["payment-amount"]
+        : 0,
+      "amount_payment" => isset($data["payment-status"]) && $data["payment-status"] !== ""
+        ? (int) $data["payment-status"]
+        : 0,
+    ];
+
+    if (isset($data["payment-amount-not"]) && $data["payment-amount-not"] !== "") {
+      $param["total_amount_not_payment"] = (float) $data["payment-amount-not"];
+    }
+
+    $invoice = $this->handleInvoice->paymentInvoice($custom["invoice"], $custom["config"], $param);
+
+    if (!$invoice["success"]) {
+      $this->messenger()->addError($invoice["message"]);
+    }
+    else {
+      $this->messenger()->addStatus($this->t("Update payment invoice successfully"));
+    }
+
+    return new RedirectResponse($custom["redirect"]);
+  }
+
+  /**
+   * Hủy hạch toán hóa đơn đầu vào.
+   */
+  public function cancelAccountingInvoice(Request $request, string $uuid) {
+    $data = $request->query->all();
+    $array_uuid = explode(',', $uuid);
+
+    $custom = $this->invoiceService->getCustom($data["destination"], $array_uuid, "in");
+    if ($custom instanceof Response) {
+      return $custom;
+    }
+
+    $invoice = $this->handleInvoice->accountingInvoice($custom["invoice"], $custom["config"]);
+
+    if (!$invoice["success"]) {
+      $this->messenger()->addError($invoice["message"]);
+    }
+    else {
+      $this->messenger()->addStatus($this->t("Cancel accounting invoice successfully"));
+    }
+
+    return new RedirectResponse($custom["redirect"]);
+  }
+
+  /**
+   * File hóa đơn đầu vào.
    */
   public function downloadFileInputInvoice(Request $request, string $type, string $uuid) {
     $destination = $request->query->get("destination");
@@ -262,46 +327,16 @@ class InvoiceInController extends ControllerBase {
   }
 
   /**
-   * Tạo phiếu nhập hàng.
+   * Tạo phiếu nhập hàng cho các hóa đơn vừa kéo về.
+   *
+   * @param array $dataEntity
+   *   Danh sách hóa đơn đầu vào mới lấy được.
    */
   private function createImportDocument(array $dataEntity) {
-    $list_units = $this->invoiceService->loadTerm();
-    $warehouse_id = $this->invoiceService->findWarehouse();
-
-    /** @var \Drupal\e_invoice\InvoiceInterface $data */
-    foreach ($dataEntity as $data) {
-      $import = TRUE;
-      $list_items = $data->get("field_invoice_items")->getValue();
-
-      $itemNames = array_column($list_items, "item_name");
-      $dataSupplies = $this->invoiceService->findSupplies($itemNames);
-
-      $seller_name = $data->get("field_invoice_seller_name")->value;
-      $supplier_id = $this->invoiceService->findSupplier($seller_name);
-
-      foreach ($list_items as $k => $item) {
-        if (isset($dataSupplies[$item["item_name"]])) {
-          $list_items[$k]["item_exist"] = 1;
-          $list_items[$k]["item_id"] = $dataSupplies[$item["item_name"]];
-        }
-        else {
-          $list_items[$k]["item_exist"] = 0;
-          $import = FALSE;
-        }
-      }
-
-      $data->set("field_invoice_items", $list_items);
-      $data->save();
-
-      if ($import && !empty($supplier_id)) {
-        try {
-          $this->invoiceService->createImport($data, $supplier_id, $warehouse_id, $list_units);
-        }
-        catch (\Exception $e) {
-          $this->getLogger("erp_e_invoice")->error($e->getMessage());
-          $this->messenger()->addError($this->t("Invoice entry failed."));
-        }
-      }
+    /** @var \Drupal\e_invoice\InvoiceInterface $invoice */
+    foreach ($dataEntity as $invoice) {
+      $this->invoiceService->autoCreateDocument($invoice, "import");
     }
   }
+
 }

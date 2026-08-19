@@ -1,0 +1,41 @@
+<div class="modal fade" id="paymentInvoiceModal" tabindex="-1" aria-hidden="true">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h1 class="mb-0 fs-5">{{ "Update payment invoice"|t }}</h1>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+			</div>
+			<form method="POST" action="{{ path("erp_e_invoice.e_invoice_payment") }}">
+				<div class="modal-body">
+					<div class="mb-3">
+						<label for="payment-date" class="form-label">{{ "Payment date"|t }}</label>
+						<input type="date" class="form-control" id="paymentue-date" name="payment-date" required>
+					</div>
+					<div class="mb-3">
+						<label for="payment-amount" class="form-label">{{ "Paid amount"|t }}</label>
+						<input type="number" step="any" min="0" class="form-control" id="payment-amount" name="payment-amount" value="0" required>
+					</div>
+					<div class="mb-3">
+						<label for="payment-amount-not" class="form-label">{{ "Unpaid amount"|t }}</label>
+						<input type="number" step="any" min="0" class="form-control" id="payment-amount-not" name="payment-amount-not">
+						<small class="text-muted">{{ "Leave blank to calculate from the invoice total amount."|t }}</small>
+					</div>
+					<div class="mb-3">
+						<label for="payment-status" class="form-label">{{ "Payment status"|t }}</label>
+						<select class="form-control" id="payment-status" name="payment-status" required>
+							{% for value, label in filter.option_payment_status %}
+								<option value="{{ value }}">{{ label }}</option>
+							{% endfor %}
+						</select>
+					</div>
+					<input type="hidden" id="payment-invoice-uuid" name="invoice-uuid"/>
+					<input type="hidden" name="payment-pair" value="{{ filter.current_user }}"/>
+					<input type="hidden" name="destination" value="{{ filter.destination }}"/>
+				</div>
+				<div class="modal-footer">
+					<button type="submit" class="btn btn-primary">{{ "Action"|t }}</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>

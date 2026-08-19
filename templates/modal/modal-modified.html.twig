@@ -1,0 +1,38 @@
+<div class="modal fade" id="modifiedInvoiceModal" tabindex="-1" aria-hidden="true">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h1 class="mb-0 fs-5">{{ "Modified invoice"|t }}</h1>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+			</div>
+			<form method="POST" action="{{ path("erp_e_invoice.e_invoice_modified") }}">
+				<div class="modal-body">
+					<select name="company_id" class="form-control" required>
+						<option value="">{{ "Select Company"|t }}</option>
+						{% for company_id, company_name in filter.option_company %}
+							<option value="{{ company_id }}" {% if filter.company_id == company_id %} selected {% endif %}>{{ company_name }}</option>
+						{% endfor %}
+					</select>
+					<div class="d-flex mt-3">
+						<div class="col-4">
+							<span>{{ "From day"|t }}</span>
+							<input type="date" name="start_date" class="form-control w-auto" value="{{ "now"|date("Y-m-01") }}"/>
+						</div>
+						<div class="col-4">
+							<span>{{ "To day"|t }}</span>
+							<input type="date" name="end_date" class="form-control w-auto" value="{{ "now"|date("Y-m-d") }}"/>
+						</div>
+						<div class="col-4">
+							<span>{{ "Skip"|t }}</span>
+							<input class="form-control" name="skip" value="0"/>
+						</div>
+					</div>
+					<input type="hidden" class="d-none" name="destination" value="{{filter.destination}}"/>
+				</div>
+				<div class="modal-footer">
+					<button type="submit" class="btn btn-primary">{{ "Action"|t }}</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>

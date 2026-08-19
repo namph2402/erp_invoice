@@ -2,11 +2,17 @@
 
 namespace Drupal\erp_e_invoice\Controller;
 
+use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\Core\File\FileExists;
+use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\File\FileUrlGeneratorInterface;
 use Drupal\Core\Routing\TrustedRedirectResponse;
 use Drupal\Core\Entity\EntityFieldManagerInterface;
+use Drupal\Core\Utility\Token;
 use Drupal\Component\Uuid\UuidInterface;
+use Drupal\file\FileInterface;
+use Drupal\file\FileRepositoryInterface;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -33,6 +39,10 @@ class InvoiceOutController extends ControllerBase {
     protected EntityFieldManagerInterface $entityFieldManager,
     protected UuidInterface $uuid,
     protected InvoiceService $invoiceService,
+    protected FileRepositoryInterface $fileRepository,
+    protected FileSystemInterface $fileSystem,
+    protected Token $token,
+    protected TimeInterface $time,
   ) {}
 
   /**
@@ -46,6 +56,10 @@ class InvoiceOutController extends ControllerBase {
       $container->get("entity_field.manager"),
       $container->get("uuid"),
       $container->get("erp_e_invoice.invoice_service"),
+      $container->get("file.repository"),
+      $container->get("file_system"),
+      $container->get("token"),
+      $container->get("datetime.time"),
     );
   }
 
@@ -72,13 +86,29 @@ class InvoiceOutController extends ControllerBase {
         $invoice_pdf = $this->fileUrlGenerator->generateAbsoluteString($invoice_pdf->getFileUri());
       }
 
+      /** @var \Drupal\file\Entity\File $invoice_xml_file */
+      $invoice_xml_file = $invoice->get("field_invoice_xml")->entity ?? NULL;
+      if ($invoice_xml_file) {
+        $invoice_xml_file = $this->fileUrlGenerator->generateAbsoluteString($invoice_xml_file->getFileUri());
+      }
+
+      $company = $invoice->hasField("field_invoice_company")
+        ? $invoice->get("field_invoice_company")->entity
+        : NULL;
+
       $data[] = [
         "uuid" => $invoice->uuid(),
         "invoice_name" => $invoice->label(),
         "invoice_issue" => $invoice->get("field_invoice_issue")->value,
         "invoice_no" => $invoice->get("field_invoice_no")->value,
         "invoice_date" => $invoice->get("field_invoice_date")->value,
+        "invoice_mccqt" => $invoice->get("field_invoice_mccqt")->value,
+        "invoice_pattern" => $invoice->get("field_invoice_pattern")->value,
+        "invoice_serial" => $invoice->get("field_invoice_serial")->value,
+        "invoice_refno" => $invoice->get("field_invoice_refno")->value,
+        "invoice_relateds" => $invoice->get("field_invoice_relateds")->value,
         "invoice_buyer" => $invoice->get("field_invoice_buyer_name")->value,
+        "invoice_buyer_address" => $invoice->get("field_invoice_buyer_address")->value,
         "invoice_buyer_taxcode" => $invoice->get("field_invoice_buyer_taxcode")->value,
         "invoice_vat_amount" => $invoice->get("field_invoice_vat_amount")->value,
         "invoice_discount_amount" => $invoice->get("field_invoice_discount_amount")->value,
@@ -87,13 +117,13 @@ class InvoiceOutController extends ControllerBase {
         "invoice_export" => $invoice->get("field_invoice_export")->value ?? 0,
         "invoice_xml" =>$invoice->get("field_invoice_is_xml")->value ?? 0,
         "invoice_pdf" => $invoice_pdf,
+        "invoice_xml_file" => $invoice_xml_file,
         "invoice_status" => [
           "value" => $status_value,
           "label" => $invoice_status,
         ],
-        "invoice_company_id" => $invoice->hasField("field_invoice_company")
-          ? $invoice->get("field_invoice_company")->target_id
-          : NULL,
+        "invoice_company" => $company?->label() ?? "",
+        "invoice_company_id" => $company?->id(),
       ];
     }
 
@@ -110,8 +140,8 @@ class InvoiceOutController extends ControllerBase {
         "status" => $node_invoices["status"],
         "option_company" => $node_invoices["option_company"],
         "option_status" => $allowed_values,
-        "limit" => $node_invoices["limit"],
-        "option_limit" => $node_invoices["option_limit"],
+        "page_size" => $node_invoices["page_size"],
+        "option_page_size" => $node_invoices["option_page_size"],
         "summary" => $node_invoices["summary"],
         "destination" => $request->getRequestUri(),
         "current_user" => $this->currentUser()->getAccountName(),
@@ -271,6 +301,8 @@ class InvoiceOutController extends ControllerBase {
       return new RedirectResponse($redirect);
     }
 
+    $imported = 0;
+
     foreach ($uploadedFiles as $uploadedFile) {
       if ($uploadedFile->getClientOriginalExtension() !== "xml") {
         $this->messenger()->addError($this->t("File must be XML"));
@@ -278,6 +310,15 @@ class InvoiceOutController extends ControllerBase {
       }
 
       $items = [];
+      $xml_content = @file_get_contents($uploadedFile->getRealPath());
+
+      if ($xml_content === FALSE) {
+        $this->messenger()->addError($this->t("Cannot read file: @file", [
+          "@file" => $uploadedFile->getClientOriginalName(),
+        ]));
+        continue;
+      }
+
       $data = $this->parseXML($uploadedFile->getRealPath());
 
       if (empty($data["DLHDon"]["TTChung"]) || empty($data["DLHDon"]["NDHDon"])) {
@@ -342,6 +383,42 @@ class InvoiceOutController extends ControllerBase {
         continue;
       }
 
+      $company_id = $alias_name[$company_name];
+      $invoice_no = $ttchung["SHDon"] ?? NULL;
+      $invoice_pattern = $ttchung["KHMSHDon"] ?? NULL;
+      $invoice_serial = $invoice_pattern . ($ttchung["KHHDon"] ?? "");
+
+      // Cùng một số hóa đơn vẫn dùng lại được ở ký hiệu khác hoặc công ty khác,
+      // nên chỉ coi là trùng khi khớp cả số, ký hiệu và công ty phát hành.
+      if ($invoice_no !== NULL && $invoice_no !== ""
+        && $this->invoiceExists($invoice_no, $invoice_serial, $company_id)) {
+        $this->messenger()->addWarning($this->t("Invoice @no already exists, skipped file @file", [
+          "@no" => $invoice_no,
+          "@file" => $uploadedFile->getClientOriginalName(),
+        ]));
+        continue;
+      }
+
+      try {
+        $xml_file = $this->saveXmlFile(
+          $uploadedFile->getClientOriginalName(),
+          $xml_content
+        );
+      }
+      catch (\Throwable $e) {
+        $xml_file = NULL;
+        $this->getLogger("erp_e_invoice")->error(
+          "Cannot save XML file @file: @message",
+          [
+            "@file" => $uploadedFile->getClientOriginalName(),
+            "@message" => $e->getMessage(),
+          ]
+        );
+        $this->messenger()->addWarning($this->t("Cannot save XML file: @file", [
+          "@file" => $uploadedFile->getClientOriginalName(),
+        ]));
+      }
+
       $this->entityTypeManager()
         ->getStorage("invoice")
         ->create([
@@ -350,12 +427,12 @@ class InvoiceOutController extends ControllerBase {
           "field_invoice_status" => 1,
           "field_invoice_issue" => 1,
           "field_invoice_is_xml" => 1,
-          "field_invoice_date" => $ttchung["NLap"],
-          "field_invoice_buyer_legal" => $customer["Ten"],
-          "field_invoice_buyer_name" => $customer["Ten"],
-          "field_invoice_buyer_phone" => $customer["SDThoai"],
-          "field_invoice_buyer_taxcode" => $customer["MST"],
-          "field_invoice_buyer_address" => $customer["DChi"],
+          "field_invoice_date" => $ttchung["NLap"] ?? NULL,
+          "field_invoice_buyer_legal" => $customer["Ten"] ?? NULL,
+          "field_invoice_buyer_name" => $customer["Ten"] ?? NULL,
+          "field_invoice_buyer_phone" => $customer["SDThoai"] ?? NULL,
+          "field_invoice_buyer_taxcode" => $customer["MST"] ?? NULL,
+          "field_invoice_buyer_address" => $customer["DChi"] ?? NULL,
           "field_invoice_amount" => $amount,
           "field_invoice_discount_amount" => $discount_amount,
           "field_invoice_amount_without_vat" => $amount - $discount_amount,
@@ -363,21 +440,112 @@ class InvoiceOutController extends ControllerBase {
           "field_invoice_total_amount" => $total_amount,
           "field_invoice_items" => $items,
           "field_invoice_id" => $invoice_id,
-          "field_invoice_no" => $ttchung["SHDon"],
-          "field_invoice_pattern" => $ttchung["KHMSHDon"],
-          "field_invoice_serial" => $ttchung["KHMSHDon"] . $ttchung["KHHDon"],
+          "field_invoice_no" => $invoice_no,
+          "field_invoice_pattern" => $invoice_pattern,
+          "field_invoice_serial" => $invoice_serial,
           "field_invoice_payment" => "inv_tm_ck",
           "field_invoice_mccqt" => $data["MCCQT"] ?? NULL,
           "field_invoice_status_cqt" => !empty($data["MCCQT"]) ? 1 : 0,
-          "field_invoice_company" => $company_name,
+          "field_invoice_company" => $company_id,
           "field_invoice_origin" => NULL,
+          "field_invoice_xml" => $xml_file ? ["target_id" => $xml_file->id()] : NULL,
         ]
       )
       ->save();
+
+      $imported++;
     }
 
-    $this->messenger()->addStatus($this->t("Import invoice successfully"));
+    if ($imported > 0) {
+      $this->messenger()->addStatus($this->t("Import @count invoice successfully", [
+        "@count" => $imported,
+      ]));
+    }
+
     return new RedirectResponse($redirect);
+  }
+
+  /**
+   * Kiểm tra hóa đơn đầu ra đã có trong hệ thống hay chưa.
+   *
+   * @param string|int $invoice_no
+   *   Số hóa đơn đọc từ file XML.
+   * @param string $serial
+   *   Ký hiệu hóa đơn (mẫu số ghép ký hiệu).
+   * @param string|int $company_id
+   *   Term công ty phát hành hóa đơn.
+   *
+   * @return bool
+   *   TRUE khi đã có hóa đơn trùng số, dùng để bỏ qua file đang nhập.
+   */
+  private function invoiceExists(string|int $invoice_no, string $serial, string|int $company_id): bool {
+    $query = $this->entityTypeManager()
+      ->getStorage("invoice")
+      ->getQuery()
+      ->condition("bundle", "output_invoices")
+      ->condition("field_invoice_no", $invoice_no)
+      ->condition("field_invoice_company", $company_id)
+      ->accessCheck(FALSE)
+      ->range(0, 1);
+
+    if ($serial !== "") {
+      $query->condition("field_invoice_serial", $serial);
+    }
+
+    return !empty($query->execute());
+  }
+
+  /**
+   * Lưu nội dung XML vào thư mục cấu hình của field field_invoice_xml.
+   *
+   * @param string $filename
+   *   Tên file gốc do người dùng tải lên.
+   * @param string $content
+   *   Nội dung file XML.
+   *
+   * @return FileInterface
+   *   File đã lưu ở trạng thái permanent.
+   */
+  private function saveXmlFile(string $filename, string $content): FileInterface {
+    $definitions = $this->entityFieldManager->getFieldDefinitions("invoice", "output_invoices");
+
+    if (!isset($definitions["field_invoice_xml"])) {
+      throw new \DomainException("Field field_invoice_xml does not exist on output_invoices");
+    }
+
+    $definition = $definitions["field_invoice_xml"];
+    $scheme = $definition->getFieldStorageDefinition()->getSetting("uri_scheme");
+
+    if (!$scheme) {
+      throw new \DomainException("Missing uri_scheme");
+    }
+
+    $directory = $this->token->replace(
+      $definition->getSetting("file_directory") ?? "",
+      ["date" => $this->time->getRequestTime()]
+    );
+
+    $destination = $scheme . "://" . trim($directory, "/");
+
+    if (!$this->fileSystem->prepareDirectory($destination, FileSystemInterface::CREATE_DIRECTORY)) {
+      throw new \DomainException("Cannot prepare directory");
+    }
+
+    // basename() chặn tên file kèm đường dẫn, tránh ghi ra ngoài thư mục.
+    $file = $this->fileRepository->writeData(
+      $content,
+      $destination . "/" . basename($filename),
+      FileExists::Rename
+    );
+
+    if (!$file) {
+      throw new \DomainException("Cannot save file");
+    }
+
+    $file->setPermanent();
+    $file->save();
+
+    return $file;
   }
 
   /**
@@ -475,7 +643,7 @@ class InvoiceOutController extends ControllerBase {
         $origin_entity->save();
       }
 
-      // $this->createExportDocument($issued);
+      $this->createExportDocument($issued);
     }
 
     $this->messenger()->addStatus($this->formatPlural(
@@ -788,44 +956,13 @@ class InvoiceOutController extends ControllerBase {
   }
 
   /**
-   * Tạo phiếu xuất hàng.
+   * Tạo phiếu xuất hàng cho hóa đơn vừa phát hành.
+   *
+   * @param InvoiceInterface $dataEntity
+   *   Hóa đơn đầu ra đã phát hành.
    */
   private function createExportDocument(InvoiceInterface $dataEntity) {
-    $list_units = $this->invoiceService->loadTerm();
-    $warehouse_id = $this->invoiceService->findWarehouse();
-
-    $export = TRUE;
-    $list_items = $dataEntity->get("field_invoice_items")->getValue();
-
-    $itemNames = array_column($list_items, "item_name");
-    $dataSupplies = $this->invoiceService->findSupplies($itemNames);
-
-    $buyer_name = $dataEntity->get("field_invoice_buyer_name")->value;
-    $supplier_id = $this->invoiceService->findSupplier($buyer_name);
-
-    foreach ($list_items as $k => $item) {
-      if (isset($dataSupplies[$item["item_name"]])) {
-        $list_items[$k]["item_exist"] = 1;
-        $list_items[$k]["item_id"] = $dataSupplies[$item["item_name"]];
-      }
-      else {
-        $list_items[$k]["item_exist"] = 0;
-        $export = FALSE;
-      }
-    }
-
-    $dataEntity->set("field_invoice_items", $list_items);
-    $dataEntity->save();
-
-    if ($export && !empty($supplier_id)) {
-      try {
-        $this->invoiceService->createExport($dataEntity, $supplier_id, $warehouse_id, $list_units);
-      }
-      catch (\Exception $e) {
-        $this->getLogger("erp_e_invoice")->error($e->getMessage());
-        $this->messenger()->addError($this->t("Invoice entry failed."));
-      }
-    }
+    $this->invoiceService->autoCreateDocument($dataEntity, "export");
   }
 
 }

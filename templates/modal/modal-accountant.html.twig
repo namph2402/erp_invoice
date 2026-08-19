@@ -1,0 +1,31 @@
+<div class="modal fade" id="uuidInvoiceModal" tabindex="-1" aria-hidden="true">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h1 class="mb-0 fs-5">{{ "Accountant invoice"|t }}</h1>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+			</div>
+			<form method="POST" action="{{ path("erp_e_invoice.e_invoice_accoutant") }}">
+				<div class="modal-body">
+					<div class="mb-3">
+						<label for="accoutant" class="form-label">{{ "Accoutant"|t }}</label>
+						<input type="text" class="form-control" id="accoutant" name="accoutant" value="{{filter.current_user}}" required>
+					</div>
+					<div class="mb-3">
+						<label for="accoutant-date" class="form-label">{{ "Accoutant date"|t }}</label>
+						<input type="date" class="form-control" id="accoutant-date" name="accoutant-date" value="{{ "now"|date("Y-m-d") }}" required>
+					</div>
+					<div class="mb-3">
+						<label for="accoutant-refno" class="form-label">{{ "Accoutant refno"|t }}</label>
+						<input type="text" class="form-control" id="accoutant-refno" name="accoutant-refno" required>
+					</div>
+					<input type="hidden" id="invoice-uuid" name="invoice-uuid"/>
+					<input type="hidden" name="destination" value="{{filter.destination}}"/>
+				</div>
+				<div class="modal-footer">
+					<button type="submit" class="btn btn-primary">{{ "Action"|t }}</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>

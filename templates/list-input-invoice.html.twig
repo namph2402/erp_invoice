@@ -12,7 +12,6 @@
 						<option value="{{ company_id }}" {% if filter.company_id == company_id %} selected {% endif %}>{{ company_name }}</option>
 					{% endfor %}
 				</select>
-				<input type="hidden" name="limit" value="{{ filter.limit }}"/>
 				<button type="submit" class="btn btn-primary ms-1" style="white-space: nowrap;">
 					<i class="bi bi-search me-1"></i>
 				</button>
@@ -65,15 +64,13 @@
 			</div>
 			<div class="invoice-toolbar d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
 				<div class="d-flex align-items-center gap-2">
-					<label class="mb-0 text-nowrap small text-muted" for="invoice-limit-in">{{ "Rows displayed"|t }}</label>
-					<select id="invoice-limit-in" class="form-select form-select-sm invoice-limit">
-						{% for limit in filter.option_limit %}
-							<option value="{{ limit }}" {% if filter.limit == limit %} selected {% endif %}>{{ limit }}</option>
+					<select id="invoice-page-size-in" class="form-select form-select-sm invoice-page-size">
+						{% for page_size in filter.option_page_size %}
+							<option value="{{ page_size }}" {% if filter.page_size == page_size %} selected {% endif %}>{{ page_size }}</option>
 						{% endfor %}
+						<option value="0">{{ "All"|t }}</option>
 					</select>
-					<span class="small text-muted text-nowrap">
-						{{ "Showing @showing / @total"|t({"@showing": data|length, "@total": filter.summary.count}) }}
-					</span>
+					<span class="small text-muted text-nowrap invoice-range"></span>
 				</div>
 				<div class="d-flex align-items-center gap-2">
 					<div class="dropdown">
@@ -93,32 +90,32 @@
 					data-table-key="input-invoice" data-export-name="{{ "List of input invoices"|t }}">
 					<thead class="text-center">
 						<tr>
-							<th class="text-nowrap" data-col-lock="1" data-col-sort="0" data-col-index="1">Stt</th>
-							<th class="text-nowrap" data-col-export="0" data-col-sort="0">Tệp</th>
-							<th class="text-nowrap">Số hóa đơn</th>
-							<th class="text-nowrap">Ngày hóa đơn</th>
-							<th class="text-nowrap">Mã cơ quan thuế</th>
-							<th class="text-nowrap">Kết quả kiểm tra</th>
-							<th class="text-nowrap">Tên người bán</th>
-							<th class="text-nowrap">Địa chỉ người bán</th>
-							<th class="text-nowrap">MST người bán</th>
-							<th class="text-nowrap">Mẫu số</th>
-							<th class="text-nowrap">Kí hiệu</th>
-							<th class="text-nowrap">Thanh tiền trước thuế</th>
-							<th class="text-nowrap">Tổng tiền thuế</th>
-							<th class="text-nowrap">Tổng tiền</th>
-							<th class="text-nowrap">Trạng thái hóa đơn</th>
-							<th class="text-nowrap">Hóa đơn liên quan</th>
-							<th class="text-nowrap">Hạn thanh toán</th>
-							<th class="text-nowrap">Trạng thái thanh toán</th>
-							<th class="text-nowrap">Tiền chưa thanh toán</th>
-							<th class="text-nowrap">Tên người mua</th>
-							<th class="text-nowrap">Địa chỉ người mua</th>
-							<th class="text-nowrap">MST người mua</th>
-							<th class="text-nowrap">Số chứng từ</th>
-							<th class="text-nowrap">Người hạch toán</th>
-							<th class="text-nowrap">Ngày hạch toán</th>
-							<th class="text-nowrap">Biển số xe</th>
+							<th class="text-nowrap" data-col-lock="1" data-col-sort="0" data-col-index="1">{{ 'Stt'|t }}</th>
+							<th class="text-nowrap" data-col-export="0" data-col-sort="0">{{ 'File'|t }}</th>
+							<th class="text-nowrap">{{ 'Invoice no'|t }}</th>
+							<th class="text-nowrap">{{ 'Invoice date'|t }}</th>
+							<th class="text-nowrap">{{ 'Tax authority code'|t }}</th>
+							<th class="text-nowrap">{{ 'Check result'|t }}</th>
+							<th class="text-nowrap">{{ 'Seller name'|t }}</th>
+							<th class="text-nowrap">{{ 'Seller address'|t }}</th>
+							<th class="text-nowrap">{{ 'Seller taxcode'|t }}</th>
+							<th class="text-nowrap">{{ 'Pattern'|t }}</th>
+							<th class="text-nowrap">{{ 'Serial'|t }}</th>
+							<th class="text-nowrap">{{ 'Amount without vat'|t }}</th>
+							<th class="text-nowrap">{{ 'Vat amount'|t }}</th>
+							<th class="text-nowrap">{{ 'Total amount'|t }}</th>
+							<th class="text-nowrap">{{ 'Invoice status'|t }}</th>
+							<th class="text-nowrap">{{ 'Related invoices'|t }}</th>
+							<th class="text-nowrap">{{ 'Payment due date'|t }}</th>
+							<th class="text-nowrap">{{ 'Payment status'|t }}</th>
+							<th class="text-nowrap">{{ 'Unpaid amount'|t }}</th>
+							<th class="text-nowrap">{{ 'Buyer name'|t }}</th>
+							<th class="text-nowrap">{{ 'Buyer address'|t }}</th>
+							<th class="text-nowrap">{{ 'Buyer taxcode'|t }}</th>
+							<th class="text-nowrap">{{ 'Accountant refno'|t }}</th>
+							<th class="text-nowrap">{{ 'Accountant name'|t }}</th>
+							<th class="text-nowrap">{{ 'Accounting date'|t }}</th>
+							<th class="text-nowrap">{{ 'License plate'|t }}</th>
 							<th class="text-nowrap" data-col-lock="1" data-col-export="0" data-col-sort="0">{{ "Action"|t }}</th>
 						</tr>
 					</thead>
@@ -219,7 +216,7 @@
 										<ul class="dropdown-menu">
 											{% if item.invoice_import != 1 %}
 												<li>
-													<a href="{{ path('<front>') }}accountant/invoice/{{ item.uuid }}" class="dropdown-item use-ajax" data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
+													<a href="{{ path('<front>') }}accountant/invoice/{{ item.uuid }}?destination={{ filter.destination }}" class="dropdown-item use-ajax" data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
 														{{ "Import"|t }}
 													</a>
 												</li>
@@ -253,13 +250,28 @@
 													</a>
 												{% endif %}
 											</li>
-											{% if item.invoice_accountant is empty %}
-												<li>
+											<li>
+												<a type="button" class="btn-payment-invoice dropdown-item"
+													data-bs-toggle="modal" data-bs-target="#paymentInvoiceModal"
+													data-invoice-uuid="{{ item.uuid }}"
+													data-payment-due-date="{{ item.invoice_payment_due_date }}"
+													data-payment-amount="{{ item.invoice_total_amount_payment }}"
+													data-payment-amount-not="{{ item.invoice_total_amount_not_payment }}"
+													data-payment-status="{{ item.invoice_payment_status_value }}">
+													{{ "Update payment invoice"|t }}
+												</a>
+											</li>
+											<li>
+												{% if item.invoice_accountant is empty %}
 													<a type="button" class="btn-uuid-invoice dropdown-item" data-bs-toggle="modal" data-bs-target="#uuidInvoiceModal" data-invoice-uuid="{{ item.uuid }}">
 														{{ "Invoice accountant"|t }}
 													</a>
-												</li>
-											{% endif %}
+												{% else %}
+													<a class="dropdown-item" href="{{ path("erp_e_invoice.e_invoice_cancel_accoutant", {"uuid": item.uuid}, {"query" : {"destination" : filter.destination}}) }}">
+														{{ "Cancel Accountant Invoice"|t }}
+													</a>
+												{% endif %}
+											</li>
 										</ul>
 									</div>
 								</td>
@@ -268,73 +280,16 @@
 					</tbody>
 				</table>
 			</div>
+
+			{# Phân trang chạy trên trình duyệt, danh sách dòng đã có sẵn trong bảng. #}
+			<nav class="invoice-pagination d-flex justify-content-center mt-2" aria-label="{{ "Pagination"|t }}">
+				<ul class="pagination pagination-sm mb-0 invoice-pages"></ul>
+			</nav>
 		</div>
 	</div>
 </div>
 
 <!-- Modal -->
-<div class="modal fade" id="modifiedInvoiceModal" tabindex="-1" aria-hidden="true">
-	<div class="modal-dialog">
-		<div class="modal-content">
-			<div class="modal-header">
-				<h1 class="mb-0 fs-5">{{ "Modified invoice"|t }}</h1>
-				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-			</div>
-			<form method="POST" action="{{ path("erp_e_invoice.e_invoice_modified") }}">
-				<div class="modal-body">
-					<select name="company_id" class="form-control" required>
-						<option value="">{{ "Select Company"|t }}</option>
-						{% for company_id, company_name in filter.option_company %}
-							<option value="{{ company_id }}" {% if filter.company_id == company_id %} selected {% endif %}>{{ company_name }}</option>
-						{% endfor %}
-					</select>
-					<div class="d-flex mt-3">
-						<div class="col-4">
-							<span>{{ "From day"|t }}</span>
-							<input type="date" name="start_date" class="form-control w-auto" value="{{ "now"|date("Y-m-01") }}"/>
-						</div>
-						<div class="col-4">
-							<span>{{ "To day"|t }}</span>
-							<input type="date" name="end_date" class="form-control w-auto" value="{{ "now"|date("Y-m-d") }}"/>
-						</div>
-						<div class="col-4">
-							<span>{{ "Skip"|t }}</span>
-							<input class="form-control" name="skip" value="0"/>
-						</div>
-					</div>
-					<input type="hidden" class="d-none" name="destination" value="{{filter.destination}}"/>
-				</div>
-				<div class="modal-footer">
-					<button type="submit" class="btn btn-primary">{{ "Action"|t }}</button>
-				</div>
-			</form>
-		</div>
-	</div>
-</div>
-<div class="modal fade" id="uuidInvoiceModal" tabindex="-1" aria-hidden="true">
-	<div class="modal-dialog">
-		<div class="modal-content">
-			<div class="modal-header">
-				<h1 class="mb-0 fs-5">{{ "Accountant invoice"|t }}</h1>
-				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-			</div>
-			<form method="POST" action="{{ path("erp_e_invoice.e_invoice_accoutant") }}">
-				<div class="modal-body">
-					<div class="mb-3">
-						<label for="accoutant" class="form-label">{{ "Accoutant"|t }}</label>
-						<input type="text" class="form-control" id="accoutant" name="accoutant" value="{{filter.current_user}}" required>
-					</div>
-					<div class="mb-3">
-						<label for="accoutant-date" class="form-label">{{ "Accoutant date"|t }}</label>
-						<input type="date" class="form-control" id="accoutant-date" name="accoutant-date" value="{{ "now"|date("Y-m-d") }}" required>
-					</div>
-					<input type="hidden" id="invoice-uuid" name="invoice-uuid"/>
-					<input type="hidden" name="destination" value="{{filter.destination}}"/>
-				</div>
-				<div class="modal-footer">
-					<button type="submit" class="btn btn-primary">{{ "Action"|t }}</button>
-				</div>
-			</form>
-		</div>
-	</div>
-</div>
+{{ include('@erp_e_invoice/templates/modal/modal-modified.html.twig') }}
+{{ include('@erp_e_invoice/templates/modal/modal-accountant.html.twig') }}
+{{ include('@erp_e_invoice/templates/modal/modal-payment.html.twig') }}

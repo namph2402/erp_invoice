@@ -68,6 +68,20 @@
         });
       });
 
+      // Gán dữ liệu thanh toán của hóa đơn vào form.
+      once('payment-invoice-modal', '.btn-payment-invoice', context).forEach(function (btn) {
+        $(btn).on('click', function () {
+          const $modal = $('#paymentInvoiceModal');
+          const data = $(this).data();
+
+          $modal.find('#payment-invoice-uuid').val(data.invoiceUuid);
+          $modal.find('#payment-due-date').val(data.paymentDueDate || '');
+          $modal.find('#payment-amount').val(data.paymentAmount || 0);
+          $modal.find('#payment-amount-not').val(data.paymentAmountNot || '');
+          $modal.find('#payment-status').val(data.paymentStatus || 0);
+        });
+      });
+
       // Lấy mẫu hóa đơn.
       once('config-invoice-modal', '.btn-config-invoice', context).forEach(function (btn) {
         $(btn).on('click', function () {
@@ -186,22 +200,30 @@
         });
       });
 
+      // Bảng nạp sẵn mọi hóa đơn khớp bộ lọc rồi mới chia trang, nên chọn tất cả
+      // chỉ tính các dòng của trang đang xem như khi máy chủ còn tự chia trang.
+      function visibleInvoices() {
+        return $('input[name="select-invoice"]', context).filter(function () {
+          return !$(this).closest('tr').hasClass('d-none');
+        });
+      }
+
       // Checkbox tất cả
       once('select-invoice-all', '#select-invoice-all', context).forEach(function (element) {
 
         $(element).on('change', function () {
           const isChecked = $(this).is(':checked');
 
-          $('input[name="select-invoice"]', context).prop('checked', isChecked);
+          visibleInvoices().prop('checked', isChecked);
         });
       });
 
       // Checkbox từng dòng
       once('select-invoice-item', '.select-invoice', context).forEach(function (element) {
         $(element).on('change', function () {
-          const total = $('input[name="select-invoice"]', context).length;
-          const checked = $('input[name="select-invoice"]:checked', context).length;
-          $('#select-invoice-all', context).prop('checked', total === checked);
+          const $visible = visibleInvoices();
+          const checked = $visible.filter(':checked').length;
+          $('#select-invoice-all', context).prop('checked', $visible.length > 0 && $visible.length === checked);
         });
       });
     }

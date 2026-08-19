@@ -65,8 +65,8 @@ input[type="number"]::-webkit-inner-spin-button {
     color: #198754;
 }
 
-/* Select số dòng hiển thị không kéo hết chiều ngang thanh công cụ. */
-.invoice-toolbar .invoice-limit {
+/* Select số dòng mỗi trang không kéo hết chiều ngang thanh công cụ. */
+.invoice-toolbar .invoice-page-size {
     width: auto;
     min-width: 5rem;
 }

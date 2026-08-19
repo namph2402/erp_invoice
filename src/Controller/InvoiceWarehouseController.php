@@ -60,11 +60,10 @@ class InvoiceWarehouseController extends ControllerBase {
         ],
         "company_id" => $data["company_id"],
         "option_company" => $data["option_company"],
+        "page_size" => $data["page_size"],
+        "option_page_size" => $data["option_page_size"],
         "destination" => $request->getRequestUri(),
         "current_user" => $this->currentUser()->getAccountName(),
-        "pager" => [
-          "#type" => "pager",
-        ],
       ],
       "#attached" => [
         "library" => [
@@ -91,11 +90,10 @@ class InvoiceWarehouseController extends ControllerBase {
         ],
         "company_id" => $data["company_id"],
         "option_company" => $data["option_company"],
+        "page_size" => $data["page_size"],
+        "option_page_size" => $data["option_page_size"],
         "destination" => $request->getRequestUri(),
         "current_user" => $this->currentUser()->getAccountName(),
-        "pager" => [
-          "#type" => "pager",
-        ],
       ],
       "#attached" => [
         "library" => [
@@ -121,7 +119,6 @@ class InvoiceWarehouseController extends ControllerBase {
     $supplies_ids = $suppliesManage->getQuery()
       ->condition("field_sup_list_warehouse", $warehouse_id)
       ->sort("title", "ASC")
-      ->pager(20)
       ->accessCheck(TRUE)
       ->execute();
 
@@ -164,9 +161,8 @@ class InvoiceWarehouseController extends ControllerBase {
       "#theme" => "list_warehouse_invoice",
       "#data" => $data,
       "#filter" => [
-        "pager" => [
-          "#type" => "pager",
-        ],
+        "page_size" => InvoiceService::DEFAULT_PAGE_SIZE,
+        "option_page_size" => InvoiceService::PAGE_SIZES,
       ],
       "#attached" => [
         "library" => [
@@ -263,6 +259,9 @@ class InvoiceWarehouseController extends ControllerBase {
 
   /**
    * Lấy dữ liệu phiếu.
+   *
+   * Truy vấn lấy hết phiếu khớp bộ lọc, việc chia trang do bảng phía trình
+   * duyệt xử lý nên ở đây không dùng pager của máy chủ.
    */
   private function getData(Request $request, string $type) {
     $nodeManage = $this->entityTypeManager()->getStorage("node");
@@ -309,6 +308,8 @@ class InvoiceWarehouseController extends ControllerBase {
       "option_company" => $option_company,
       "start_date" => $start_date,
       "end_date" => $end_date,
+      "page_size" => InvoiceService::DEFAULT_PAGE_SIZE,
+      "option_page_size" => InvoiceService::PAGE_SIZES,
       "items" => []
     ];
 
@@ -321,7 +322,6 @@ class InvoiceWarehouseController extends ControllerBase {
       ->condition("field_company", $list_company_id, "IN")
       ->sort($field_date, "DESC")
       ->sort("created", "DESC")
-      ->pager(20)
       ->accessCheck(TRUE);
 
     if (!empty($start_date)) {

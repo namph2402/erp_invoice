@@ -1,4 +1,4 @@
-<div class="list-invoice d-flex flex-column h-100">
+<div class="list-invoice d-flex flex-column h-100 min-w-0">
 	<div class="p-2 header-wrapper">
 		<div class="d-flex justify-content-between mb-3">
 			<form method="GET" class="d-flex">
@@ -23,34 +23,44 @@
 			</div>
 		</div>
 	</div>
-	<div class="flex-grow-1 overflow-hidden p-2 bg-white">
+	<div class="flex-grow-1 min-h-0 min-w-0 p-2 bg-white">
 		<div class="d-flex flex-column h-100 text-center">
 			<h4 class="text-uppercase fw-bold my-2" id="title-report">
 				{{ "List of export invoices"|t }}
 			</h4>
-			<div class="flex-grow-1 overflow-auto h-100">
-				<table class="table table-hover table-bordered table-striped">
+			<div class="invoice-toolbar d-flex flex-wrap align-items-center gap-2 mb-2">
+				<select id="invoice-page-size-export" class="form-select form-select-sm invoice-page-size">
+					{% for page_size in filter.option_page_size %}
+						<option value="{{ page_size }}" {% if filter.page_size == page_size %} selected {% endif %}>{{ page_size }}</option>
+					{% endfor %}
+					<option value="0">{{ "All"|t }}</option>
+				</select>
+				<span class="small text-muted text-nowrap invoice-range"></span>
+			</div>
+
+			<div class="flex-grow-1 min-h-0 min-w-0 invoice-table-wrapper">
+				<table class="table table-hover table-bordered table-striped invoice-table" data-table-key="export-warehouse">
 					<thead class="text-center">
 						<tr>
-							<th>{{ "Nº"|t }}</th>
+							<th class="text-nowrap" data-col-sort="0" data-col-index="1">{{ "Nº"|t }}</th>
 							<th>{{ "Title"|t }}</th>
-							<th>{{ "Date export"|t }}</th>
+							<th class="text-nowrap">{{ "Date export"|t }}</th>
 							<th class="w-15">{{ "Buyer"|t }}</th>
 							<th>{{ "Company"|t }}</th>
-							<th>{{ "Total vat"|t }}</th>
-							<th>{{ "Total amount"|t }}</th>
+							<th class="text-nowrap">{{ "Total vat"|t }}</th>
+							<th class="text-nowrap">{{ "Total amount"|t }}</th>
 							<th>{{ "Invoice"|t }}</th>
 						</tr>
 					</thead>
 					<tbody>
 						{% for item in data %}
 							<tr>
-								<td class="text-center">{{ loop.index }}</td>
+								<td class="text-center" data-value="{{ loop.index }}">{{ loop.index }}</td>
 								<td class="text-start">
-									<a href="{{ path('<front>') }}node-uuid/{{ item.uuid }}" class="list-unstyled" target="_blank">{{ item.title }}</a>							
+									<a href="{{ path('<front>') }}node-uuid/{{ item.uuid }}" class="list-unstyled" target="_blank">{{ item.title }}</a>
 								</td>
 								<td class="text-center">
-									{{ item.date }}
+									{{ item.date| date("d/m/Y") }}
 								</td>
 								<td class="text-start">
 									{{ item.supplier }}
@@ -58,10 +68,10 @@
 								<td class="text-start">
 									{{ item.company }}
 								</td>
-								<td class="text-center">
+								<td class="text-end" data-value="{{ item.total_vat }}">
 									{{ item.total_vat|number_format(0, ",", ".") }}
 								</td>
-								<td class="text-center">
+								<td class="text-end" data-value="{{ item.total_amount }}">
 									{{ item.total_amount|number_format(0, ",", ".") }}
 								</td>
 								<td class="text-start">
@@ -75,7 +85,11 @@
 					</tbody>
 				</table>
 			</div>
-			{{ filter.pager }}
+
+			{# Phân trang chạy trên trình duyệt, danh sách dòng đã có sẵn trong bảng. #}
+			<nav class="invoice-pagination d-flex justify-content-center mt-2" aria-label="{{ "Pagination"|t }}">
+				<ul class="pagination pagination-sm mb-0 invoice-pages"></ul>
+			</nav>
 		</div>
 	</div>
 </div>

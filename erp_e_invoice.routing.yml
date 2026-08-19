@@ -122,6 +122,24 @@ erp_e_invoice.e_invoice_accoutant:
     _permission: 'administer invoice'
     _csrf_token: 'TRUE'
 
+erp_e_invoice.e_invoice_payment:
+  path: '/accountant/payment-invoice'
+  defaults:
+    _title: 'Payment invoice'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceInController::paymentInvoice'
+  methods: [POST]
+  requirements:
+    _permission: 'administer invoice'
+    _csrf_token: 'TRUE'
+
+erp_e_invoice.e_invoice_cancel_accoutant:
+  path: '/accountant/cancel-accoutant-invoice/{uuid}'
+  defaults:
+    _title: 'Cancel Accoutant invoice'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceInController::cancelAccountingInvoice'
+  requirements:
+    _permission: 'administer invoice'
+
 erp_e_invoice.e_invoice_file_invoice:
   path: '/accountant/file-invoice/{type}/{uuid}'
   defaults:
@@ -129,7 +147,6 @@ erp_e_invoice.e_invoice_file_invoice:
     _controller: 'Drupal\erp_e_invoice\Controller\InvoiceInController::downloadFileInputInvoice'
   requirements:
     _permission: 'administer invoice'
-    _csrf_token: 'TRUE'
 
 # Khác.
 erp_e_invoice.e_invoice_update_items:

@@ -9,4 +9,6 @@ services:
       - '@database'
       - '@keyvalue'
       - '@logger.factory'
+      - '@config.factory'
+      - '@?erp_common.erp_common_service'
 
