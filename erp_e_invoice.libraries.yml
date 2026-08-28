@@ -1,3 +1,14 @@
+# Báo đang xử lý, dùng chung cho mọi trang hóa đơn và kho.
+e_invoice_loading:
+  css:
+    theme:
+      css/e-invoice.css: {}
+  js:
+    js/e-invoice-loading.js: {}
+  dependencies:
+    - core/drupal
+    - core/once
+
 e_invoice:
   css:
     theme:
@@ -10,6 +21,7 @@ e_invoice:
     - core/drupal
     - core/once
     - core/drupalSettings
+    - erp_e_invoice/e_invoice_loading
 
 e_invoice_custom:
   css:
@@ -22,12 +34,26 @@ e_invoice_custom:
     - core/drupal
     - core/drupalSettings
     - core/once
+    - erp_e_invoice/e_invoice_loading
 
 e_invoice_update:
+  css:
+    theme:
+      css/e-invoice.css: {}
   js:
     js/e-invoice-update.js: {}
   dependencies:
     - core/jquery
     - core/drupal
     - core/drupalSettings
+    - core/once
+    - erp_e_invoice/e_invoice_loading
+
+# Hoãn AJAX của ô ngày tới lúc rời ô, dùng cho form tồn đầu kỳ.
+warehouse_period_date:
+  js:
+    js/warehouse-period-date.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
     - core/once

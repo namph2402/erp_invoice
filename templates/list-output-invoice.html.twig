@@ -6,6 +6,7 @@
 					<input type="date" id="start-date" name="start_date" class="search-data form-control w-auto me-1" value="{{ filter.date.start }}"/>
 					<input type="date" id="end-date" name="end_date" class="search-data form-control w-auto me-1" value="{{ filter.date.end }}"/>
 				</div>
+				<input name="buy_name" class="search-data form-control w-auto me-1" placeholder="{{ "Buyer name"|t }}" value="{{ filter.buy_name }}"/>
 				<select name="status" class="form-control me-1" style="width: 150px">
 					<option value="">{{ "Select status"|t }}</option>
 					{% for status_id, status_name in filter.option_status %}
@@ -87,6 +88,13 @@
 					<span class="small text-muted text-nowrap invoice-range"></span>
 				</div>
 				<div class="d-flex align-items-center gap-2">
+					<span class="small text-muted text-nowrap invoice-selected-label">
+						<span class="fw-bold invoice-selected-count">0</span>
+						{{ "invoices selected"|t }}
+					</span>
+					<button type="button" class="btn btn-outline-warning btn-sm text-nowrap btn-items-multiple" disabled>
+						<i class="bi bi-box-arrow-up me-1"></i>{{ "Export selected invoices"|t }}
+					</button>
 					<div class="dropdown">
 						<button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle text-nowrap" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
 							<i class="bi bi-layout-three-columns me-1"></i>{{ "Columns"|t }}
@@ -99,12 +107,19 @@
 				</div>
 			</div>
 
+			<form method="POST" class="form-items-multiple d-none" action="{{ path("erp_e_invoice.e_invoice_update_items_multiple") }}">
+				<input type="hidden" name="uuids" class="input-items-uuid"/>
+				<input type="hidden" name="destination" value="{{ filter.destination }}"/>
+			</form>
+
 			<div class="flex-grow-1 min-h-0 min-w-0 invoice-table-wrapper">
 				<table class="table table-hover table-bordered table-striped invoice-table"
 					data-table-key="output-invoice" data-export-name="{{ "List of output invoices"|t }}">
 					<thead class="text-center">
 						<tr>
-							{# <th data-col-lock="1" data-col-sort="0" data-col-export="0" data-col-label="{{ "Select"|t }}"><input type="checkbox" id="select-invoice-all"/></th> #}
+							<th data-col-lock="1" data-col-sort="0" data-col-export="0" data-col-label="{{ "Select"|t }}">
+								<input type="checkbox" id="select-invoice-all" class="form-check-input"/>
+							</th>
 							<th class="text-nowrap" data-col-lock="1" data-col-sort="0" data-col-index="1">{{ "Stt"|t }}</th>
 							<th class="text-nowrap" data-col-export="0" data-col-sort="0">{{ "File"|t }}</th>
 							<th class="text-nowrap">{{ "Invoice no"|t }}</th>
@@ -129,11 +144,11 @@
 					<tbody>
 						{% for item in data %}
 							<tr>
-								{# <td class="text-center">
-									{% if item.invoice_issue != '1' and item.invoice_company_id == filter.company_id %}
-										<input type="checkbox" name="select-invoice" value="{{ item.uuid }}" class="select-invoice"/>
+								<td class="text-center">
+									{% if item.invoice_status.value in [1, 2, 3] and item.invoice_export != 1 %}
+										<input type="checkbox" name="select-invoice" value="{{ item.uuid }}" class="form-check-input select-invoice"/>
 									{% endif %}
-								</td> #}
+								</td>
 								<td class="text-center" data-value="{{ loop.index }}">{{ loop.index }}</td>
 								<td class="text-center">
 									{% if item.invoice_pdf is not empty %}
@@ -182,8 +197,7 @@
 										</button>
 										<ul class="dropdown-menu">
 											<li>
-												<a href="{{ path('<front>') }}invoice-uuid/{{ item.uuid }}" class="dropdown-item use-ajax"
-													data-dialog-type="modal" data-dialog-options="{&quot;width&quot;:&quot;70%&quot;,&quot;title&quot;:&quot;&quot;}">
+												<a href="{{ path('<front>') }}invoice-uuid/{{ item.uuid }}" class="dropdown-item use-ajax" data-dialog-type="modal" data-dialog-options='{";width";:";70%";,";title";:";";}'>
 													{{ "Detail"|t }}
 												</a>
 											</li>
@@ -268,8 +282,7 @@
 											{% endif %}
 											{% if item.invoice_status.value in [1, 2, 3] and item.invoice_export != 1 %}
 												<li>
-													<a href="{{ path('<front>') }}accountant/invoice/{{ item.uuid }}?destination={{ filter.destination }}" class="dropdown-item use-ajax"
-														data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
+													<a href="{{ path('<front>') }}accountant/invoice/{{ item.uuid }}?destination={{ filter.destination }}" class="dropdown-item">
 														{{ "Create export"|t }}
 													</a>
 												</li>
@@ -282,7 +295,7 @@
 					</tbody>
 				</table>
 			</div>
-			{# Phân trang chạy trên trình duyệt, danh sách dòng đã có sẵn trong bảng. #}
+
 			<nav class="invoice-pagination d-flex justify-content-center mt-2" aria-label="{{ "Pagination"|t }}">
 				<ul class="pagination pagination-sm mb-0 invoice-pages"></ul>
 			</nav>

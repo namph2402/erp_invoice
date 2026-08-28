@@ -52,4 +52,31 @@
     }
   };
 
+  /** ----------------------------------------
+   *  Chọn nhanh cách xử lý cho mọi dòng hàng
+   * -----------------------------------------*/
+  Drupal.behaviors.invoiceBulkAction = {
+    attach(context) {
+      once('invoice-bulk-action', '.invoice-bulk-action', context).forEach(function (element) {
+        element.addEventListener('change', function () {
+          const value = this.value;
+
+          if (!value) {
+            return;
+          }
+
+          document.querySelectorAll('select.invoice-item-action').forEach(function (select) {
+            if (select.value === value) {
+              return;
+            }
+
+            select.value = value;
+            // #states của Drupal nghe sự kiện change nên phải bắn lại sau khi đổi.
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+        });
+      });
+    }
+  };
+
 })(jQuery, Drupal, once);

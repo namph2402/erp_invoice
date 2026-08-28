@@ -119,6 +119,7 @@ class InvoiceInController extends ControllerBase {
             : NULL,
         ],
         "company_id" => $data_invoices["company_id"],
+        "sell_name" => $data_invoices["sell_name"],
         "option_company" => $data_invoices["option_company"],
         "page_size" => $data_invoices["page_size"],
         "option_page_size" => $data_invoices["option_page_size"],
@@ -295,9 +296,49 @@ class InvoiceInController extends ControllerBase {
    * File hóa đơn đầu vào.
    */
   public function downloadFileInputInvoice(Request $request, string $type, string $uuid) {
-    $destination = $request->query->get("destination");
-    $array_uuid = explode(',', $uuid);
+    return $this->getFileInputInvoice(
+      $type,
+      explode(',', $uuid),
+      $request->query->get("destination")
+    );
+  }
 
+  /**
+   * File của nhiều hóa đơn đầu vào cùng lúc.
+   */
+  public function downloadFilesInputInvoice(Request $request) {
+    $data = $request->request->all();
+
+    $destination = $data["destination"] ?? NULL;
+
+    $array_uuid = array_filter(array_map(
+      "trim",
+      explode(',', $data["invoice-uuid"] ?? "")
+    ));
+
+    if (empty($array_uuid)) {
+      $this->messenger()->addError($this->t("Please select at least one invoice."));
+
+      return new RedirectResponse($this->invoiceService->safeRedirect(
+        $destination,
+        "erp_e_invoice.e_invoice_list_in"
+      ));
+    }
+
+    return $this->getFileInputInvoice($data["file-type"] ?? "", $array_uuid, $destination);
+  }
+
+  /**
+   * Kéo file hóa đơn đầu vào về theo loại file.
+   *
+   * @param string $type
+   *   Loại file cần lấy: pdf, xml hoặc all.
+   * @param array $array_uuid
+   *   Danh sách uuid hóa đơn.
+   * @param string|null $destination
+   *   Đường dẫn quay lại sau khi lấy file.
+   */
+  private function getFileInputInvoice(string $type, array $array_uuid, ?string $destination) {
     $list_type = [
       "all" => 1,
       "pdf" => 2,
@@ -306,7 +347,11 @@ class InvoiceInController extends ControllerBase {
 
     if (!isset($list_type[$type])) {
       $this->messenger()->addError($this->t("Not found type"));
-      return new RedirectResponse($destination);
+
+      return new RedirectResponse($this->invoiceService->safeRedirect(
+        $destination,
+        "erp_e_invoice.e_invoice_list_in"
+      ));
     }
 
     $custom = $this->invoiceService->getCustom($destination, $array_uuid, "in");

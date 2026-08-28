@@ -1,0 +1,60 @@
+{#
+  Bộ lọc dùng chung cho ba báo cáo kho.
+
+  Kỳ tồn đầu kỳ là mốc tính tồn đầu, hai ô ngày thu hẹp khoảng xem trong kỳ đó.
+  Xem trọn kỳ thì tồn đầu lấy đúng số đã khai; thu hẹp lại thì tồn đầu được tính
+  từ đầu kỳ cộng trừ phát sinh cho tới trước ngày bắt đầu.
+#}
+<div class="p-2 header-wrapper">
+	<div class="d-flex justify-content-between flex-wrap gap-2 mb-3">
+		<form method="GET" class="d-flex flex-wrap gap-1">
+			{% if filter.option_company|length > 1 %}
+				<select name="company_id" class="form-control w-auto">
+					{% for company_id, company_name in filter.option_company %}
+						<option value="{{ company_id }}" {% if filter.company_id == company_id %} selected {% endif %}>{{ company_name }}</option>
+					{% endfor %}
+				</select>
+			{% endif %}
+
+			<select name="warehouse_id" class="form-control w-auto">
+				{% for warehouse_id, warehouse_name in filter.option_warehouse %}
+					<option value="{{ warehouse_id }}" {% if filter.warehouse_id == warehouse_id %} selected {% endif %}>{{ warehouse_name }}</option>
+				{% else %}
+					<option value="">{{ "No warehouse"|t }}</option>
+				{% endfor %}
+			</select>
+
+			<select name="period_id" class="form-control w-auto warehouse-period-select">
+				<option value="">{{ "Custom date range"|t }}</option>
+				{% for period_id, period_name in filter.option_period %}
+					<option value="{{ period_id }}"
+						data-start="{{ filter.period_ranges[period_id].start }}"
+						data-end="{{ filter.period_ranges[period_id].end }}"
+						{% if filter.period_id == period_id %} selected {% endif %}>{{ period_name }}</option>
+				{% endfor %}
+			</select>
+
+			<input type="date" id="start-date" name="start_date" class="search-data form-control w-auto" value="{{ filter.date.start }}"
+				min="{{ filter.period_ranges[filter.period_id].start }}" max="{{ filter.period_ranges[filter.period_id].end }}"/>
+			<input type="date" id="end-date" name="end_date" class="search-data form-control w-auto" value="{{ filter.date.end }}"
+				min="{{ filter.period_ranges[filter.period_id].start }}" max="{{ filter.period_ranges[filter.period_id].end }}"/>
+
+			<button type="submit" class="btn btn-primary" style="white-space: nowrap;">
+				<i class="bi bi-search me-1"></i>
+			</button>
+		</form>
+
+		<div class="d-flex align-items-start flex-wrap gap-1">
+			<button data-search-date="last_week" class="btn btn-primary btn-search-date text-nowrap">{{ "Last Week"|t }}</button>
+			<button data-search-date="last_month" class="btn btn-primary btn-search-date text-nowrap">{{ "Last Month"|t }}</button>
+			<button data-search-date="full_date" class="btn btn-primary btn-search-date text-nowrap">{{ "Full date"|t }}</button>
+			{% if filter.period_edit_url %}
+				<a href="{{ filter.period_edit_url }}" class="btn btn-outline-success text-nowrap">{{ "Update opening balance"|t }}</a>
+			{% endif %}
+			<a href="{{ filter.period_url }}" class="btn btn-outline-primary text-nowrap">{{ "Create opening balance"|t }}</a>
+			<a href="{{ filter.warehouse_url }}" class="btn btn-outline-primary text-nowrap use-ajax" data-dialog-type="modal" data-dialog-options='{"width":"70%","title": "" }'>
+				{{ "Create warehouse"|t }}
+			</a>
+		</div>
+	</div>
+</div>

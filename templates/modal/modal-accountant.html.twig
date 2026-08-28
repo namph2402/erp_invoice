@@ -7,6 +7,10 @@
 			</div>
 			<form method="POST" action="{{ path("erp_e_invoice.e_invoice_accoutant") }}">
 				<div class="modal-body">
+					<p class="mb-3 invoice-selected-info d-none">
+						{{ "Selected invoices"|t }}:
+						<span class="fw-bold invoice-selected-count">0</span>
+					</p>
 					<div class="mb-3">
 						<label for="accoutant" class="form-label">{{ "Accoutant"|t }}</label>
 						<input type="text" class="form-control" id="accoutant" name="accoutant" value="{{filter.current_user}}" required>

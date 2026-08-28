@@ -148,12 +148,31 @@ erp_e_invoice.e_invoice_file_invoice:
   requirements:
     _permission: 'administer invoice'
 
+erp_e_invoice.e_invoice_files_invoice:
+  path: '/accountant/files-invoice'
+  defaults:
+    _title: 'Files invoice'
+    _controller: 'Drupal\erp_e_invoice\Controller\InvoiceInController::downloadFilesInputInvoice'
+  methods: [POST]
+  requirements:
+    _permission: 'administer invoice'
+    _csrf_token: 'TRUE'
+
 # Khác.
 erp_e_invoice.e_invoice_update_items:
   path: '/accountant/invoice/{uuid}'
   defaults:
     _form: '\Drupal\erp_e_invoice\Form\UpdateInvoiceItemsForm'
     _title: 'Update items'
+  requirements:
+    _permission: 'administer invoice'
+
+erp_e_invoice.e_invoice_update_items_multiple:
+  path: '/accountant/invoices'
+  defaults:
+    _form: '\Drupal\erp_e_invoice\Form\UpdateInvoiceItemsForm'
+    _title: 'Update items'
+  methods: [GET, POST]
   requirements:
     _permission: 'administer invoice'
 
@@ -194,5 +213,27 @@ erp_e_invoice.e_invoice_list_warehouse:
   defaults:
     _title: 'List invoice warehouse'
     _controller: 'Drupal\erp_e_invoice\Controller\InvoiceWarehouseController::listWarehouse'
+  requirements:
+    _permission: "administer invoice"
+
+erp_e_invoice.e_invoice_warehouse_period:
+  path: '/accountant/e-invoice-warehouse-period'
+  defaults:
+    _form: '\Drupal\erp_e_invoice\Form\WarehousePeriodForm'
+    _title: 'Opening balance'
+  methods: [GET, POST]
+  requirements:
+    _permission: "administer invoice"
+
+erp_e_invoice.e_invoice_warehouse_period_edit:
+  path: '/accountant/e-invoice-warehouse-period/{warehouse_transaction}'
+  defaults:
+    _form: '\Drupal\erp_e_invoice\Form\WarehousePeriodForm'
+    _title: 'Update opening balance'
+  methods: [GET, POST]
+  options:
+    parameters:
+      warehouse_transaction:
+        type: 'entity:warehouse_transaction'
   requirements:
     _permission: "administer invoice"

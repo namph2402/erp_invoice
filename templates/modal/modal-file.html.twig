@@ -1,0 +1,38 @@
+<div class="modal fade" id="fileInvoiceModal" tabindex="-1" aria-hidden="true">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<h1 class="mb-0 fs-5">{{ "Download invoice file"|t }}</h1>
+				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+			</div>
+			<form method="POST" action="{{ path("erp_e_invoice.e_invoice_files_invoice") }}">
+				<div class="modal-body">
+					<p class="mb-3">
+						{{ "Selected invoices"|t }}:
+						<span class="fw-bold invoice-selected-count">0</span>
+					</p>
+					<div class="mb-3">
+						<label class="form-label">{{ "File type"|t }}</label>
+						<div class="form-check">
+							<input class="form-check-input" type="radio" name="file-type" id="file-type-pdf" value="pdf" checked>
+							<label class="form-check-label" for="file-type-pdf">{{ "PDF"|t }}</label>
+						</div>
+						<div class="form-check">
+							<input class="form-check-input" type="radio" name="file-type" id="file-type-xml" value="xml">
+							<label class="form-check-label" for="file-type-xml">{{ "XML"|t }}</label>
+						</div>
+						<div class="form-check">
+							<input class="form-check-input" type="radio" name="file-type" id="file-type-all" value="all">
+							<label class="form-check-label" for="file-type-all">{{ "PDF & XML"|t }}</label>
+						</div>
+					</div>
+					<input type="hidden" id="file-invoice-uuid" name="invoice-uuid"/>
+					<input type="hidden" name="destination" value="{{ filter.destination }}"/>
+				</div>
+				<div class="modal-footer">
+					<button type="submit" class="btn btn-primary">{{ "Action"|t }}</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>

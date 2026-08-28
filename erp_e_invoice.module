@@ -5,6 +5,8 @@
  * Hooks provided by the erp_e_invoice module.
  */
 
+use Drupal\Core\Entity\Display\EntityViewDisplayInterface;
+use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Form\FormStateInterface;
 
 /**
@@ -60,6 +62,33 @@ function erp_e_invoice_theme() {
       ]
     ]
   ];
+}
+
+/**
+ * Implements hook_entity_view_alter().
+ *
+ * Trang xem hóa đơn, kho và phiếu kho cũng có nút chuyển trang (sửa, xoá) nên
+ * cần thư viện báo đang xử lý như các trang khác.
+ */
+function erp_e_invoice_entity_view_alter(array &$build, EntityInterface $entity, EntityViewDisplayInterface $display) {
+  if (in_array($entity->getEntityTypeId(), ["invoice", "warehouse_invoice", "warehouse_transaction"], TRUE)) {
+    $build["#attached"]["library"][] = "erp_e_invoice/e_invoice_loading";
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ *
+ * Form entity của hóa đơn, kho và phiếu kho do module e_invoice sinh ra, không
+ * đi qua mẫu hiển thị của module này nên không tự có thư viện báo đang xử lý.
+ */
+function erp_e_invoice_form_alter(array &$form, FormStateInterface $form_state, $form_id) {
+  foreach (["invoice_", "warehouse_invoice_", "warehouse_transaction_"] as $prefix) {
+    if (str_starts_with($form_id, $prefix)) {
+      $form["#attached"]["library"][] = "erp_e_invoice/e_invoice_loading";
+      return;
+    }
+  }
 }
 
 /**

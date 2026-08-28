@@ -110,3 +110,92 @@ input[type="number"]::-webkit-inner-spin-button {
     z-index: 2;
     background-color: #fff;
 }
+
+/* Form đối chiếu vật tư trước khi tạo phiếu nhập / xuất kho. */
+.invoice-items-form table {
+    width: 100%;
+    margin-bottom: 1rem;
+}
+
+.invoice-items-form caption {
+    caption-side: top;
+    padding: .5rem 0;
+    font-weight: 700;
+    color: #212529;
+    text-transform: uppercase;
+}
+
+.invoice-items-form th,
+.invoice-items-form td {
+    padding: .35rem .5rem;
+    border: 1px solid #dee2e6;
+    vertical-align: middle;
+}
+
+.invoice-items-form .form-item {
+    margin: 0;
+}
+
+.invoice-items-form details {
+    margin-bottom: 1rem;
+}
+
+/* Báo đang xử lý: lớp phủ toàn trang và vòng quay trên nút vừa bấm. */
+.e-invoice-loading {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, .6);
+    backdrop-filter: blur(1px);
+}
+
+.e-invoice-loading.is-visible {
+    display: flex;
+}
+
+.e-invoice-loading__box {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: 1rem 1.5rem;
+    background: #fff;
+    border-radius: .5rem;
+    box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .15);
+    font-weight: 500;
+    color: #212529;
+}
+
+/* Nút đang chạy: khoá thao tác và mọc vòng quay trước nhãn. */
+.btn.is-loading {
+    position: relative;
+    pointer-events: none;
+    opacity: .75;
+}
+
+.btn.is-loading::before {
+    content: "";
+    display: inline-block;
+    width: .875em;
+    height: .875em;
+    margin-right: .4em;
+    vertical-align: -.125em;
+    border: .15em solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: e-invoice-spin .75s linear infinite;
+}
+
+@keyframes e-invoice-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .btn.is-loading::before {
+        animation-duration: 2s;
+    }
+}

@@ -65,6 +65,7 @@
           const $modal = $('#uuidInvoiceModal');
           const input = $modal.find('#invoice-uuid');
           input.val($(this).data('invoice-uuid'));
+          $modal.find('.invoice-selected-info').addClass('d-none');
         });
       });
 
@@ -203,9 +204,30 @@
       // Bảng nạp sẵn mọi hóa đơn khớp bộ lọc rồi mới chia trang, nên chọn tất cả
       // chỉ tính các dòng của trang đang xem như khi máy chủ còn tự chia trang.
       function visibleInvoices() {
-        return $('input[name="select-invoice"]', context).filter(function () {
+        return $('input[name="select-invoice"]').filter(function () {
           return !$(this).closest('tr').hasClass('d-none');
         });
+      }
+
+      // Dòng đã tích ở mọi trang, vì thao tác hàng loạt chạy trên cả bảng.
+      function selectedUuids() {
+        return $('input[name="select-invoice"]:checked').map(function () {
+          return this.value;
+        }).get();
+      }
+
+      // Đồng bộ ô chọn tất cả, số hóa đơn đang chọn và các nút thao tác hàng loạt.
+      function refreshSelection() {
+        const $visible = visibleInvoices();
+        const total = selectedUuids().length;
+
+        $('#select-invoice-all').prop(
+          'checked',
+          $visible.length > 0 && $visible.filter(':checked').length === $visible.length
+        );
+
+        $('.invoice-selected-count').text(total);
+        $('.btn-file-multiple, .btn-accountant-multiple, .btn-items-multiple').prop('disabled', total === 0);
       }
 
       // Checkbox tất cả
@@ -215,17 +237,85 @@
           const isChecked = $(this).is(':checked');
 
           visibleInvoices().prop('checked', isChecked);
+          refreshSelection();
         });
       });
 
       // Checkbox từng dòng
       once('select-invoice-item', '.select-invoice', context).forEach(function (element) {
-        $(element).on('change', function () {
-          const $visible = visibleInvoices();
-          const checked = $visible.filter(':checked').length;
-          $('#select-invoice-all', context).prop('checked', $visible.length > 0 && $visible.length === checked);
+        $(element).on('change', refreshSelection);
+      });
+
+      // Đổi trang chỉ ẩn hiện dòng nên phải tính lại ô chọn tất cả của trang mới.
+      once('select-invoice-paging', '.invoice-pagination, .invoice-page-size', context).forEach(function (element) {
+        $(element).on('click change', function () {
+          window.setTimeout(refreshSelection, 0);
         });
       });
+
+      // Tải file của nhiều hóa đơn.
+      once('file-multiple-modal', '.btn-file-multiple', context).forEach(function (btn) {
+        $(btn).on('click', function () {
+          $('#fileInvoiceModal').find('#file-invoice-uuid').val(selectedUuids().join(','));
+        });
+      });
+
+      // Hạch toán nhiều hóa đơn.
+      once('accountant-multiple-modal', '.btn-accountant-multiple', context).forEach(function (btn) {
+        $(btn).on('click', function () {
+          const $modal = $('#uuidInvoiceModal');
+
+          $modal.find('#invoice-uuid').val(selectedUuids().join(','));
+          $modal.find('.invoice-selected-info').removeClass('d-none');
+        });
+      });
+
+      // Nhập / xuất kho nhiều hóa đơn: gửi danh sách uuid sang form đối chiếu.
+      // Gửi bằng POST vì danh sách uuid dài hơn giới hạn của đường dẫn.
+      once('items-multiple', '.btn-items-multiple', context).forEach(function (btn) {
+        $(btn).on('click', function () {
+          const uuids = selectedUuids();
+
+          if (!uuids.length) {
+            return;
+          }
+
+          const form = $('.form-items-multiple');
+          form.find('.input-items-uuid').val(uuids.join(','));
+          form.get(0).submit();
+        });
+      });
+
+      // Đổi kỳ tồn đầu kỳ thì điền lại hai ô ngày theo khoảng ngày của kỳ, sau
+      // đó kế toán tự thu hẹp để xem phát sinh của từng đoạn trong kỳ. Không
+      // điền thì ô ngày còn giữ khoảng của kỳ cũ và lọc ra đúng kỳ vừa bỏ.
+      once('warehouse-period', '.warehouse-period-select', context).forEach(function (select) {
+        select.addEventListener('change', function () {
+          const option = this.options[this.selectedIndex];
+          const start = document.getElementById('start-date');
+          const end = document.getElementById('end-date');
+
+          if (!option || !start || !end) {
+            return;
+          }
+
+          [start, end].forEach(function (input) {
+            input.min = option.dataset.start || '';
+            input.max = option.dataset.end || '';
+          });
+
+          // "Khoảng ngày tự chọn" không có mốc nào để điền, giữ nguyên ngày
+          // đang nhập dở.
+          if (!this.value) {
+            return;
+          }
+
+          start.value = option.dataset.start || '';
+          end.value = option.dataset.end || '';
+        });
+      });
+
+      once('select-invoice-init', '.invoice-table', context).forEach(refreshSelection);
     }
   };
 })(jQuery, Drupal, once);

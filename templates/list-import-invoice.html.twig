@@ -1,33 +1,23 @@
 <div class="list-invoice d-flex flex-column h-100 min-w-0">
-	<div class="p-2 header-wrapper">
-		<div class="d-flex justify-content-between mb-3">
-			<form method="GET" class="d-flex">
-				<div class="d-flex">
-					<input type="date" id="start-date" name="start_date" class="search-data form-control w-auto me-1" value="{{ filter.date.start }}"/>
-					<input type="date" id="end-date" name="end_date" class="search-data form-control w-auto me-1" value="{{ filter.date.end }}"/>
-				</div>
-				<select name="company_id" class="form-control">
-					<option value="">{{ "Select Company"|t }}</option>
-					{% for company_id, company_name in filter.option_company %}
-						<option value="{{ company_id }}" {% if filter.company_id == company_id %} selected {% endif %}>{{ company_name }}</option>
-					{% endfor %}
-				</select>
-				<button type="submit" class="btn btn-primary ms-1" style="white-space: nowrap;">
-					<i class="bi bi-search me-1"></i>
-				</button>
-			</form>
-			<div class="d-flex align-items-start">
-				<button data-search-date="last_week" class="btn btn-primary btn-search-date ms-1 text-nowrap">{{ "Last Week"|t }}</button>
-				<button data-search-date="last_month" class="btn btn-primary btn-search-date ms-1 text-nowrap">{{ "Last Month"|t }}</button>
-				<button data-search-date="full_date" class="btn btn-primary btn-search-date ms-1 text-nowrap">{{ "Full date"|t }}</button>
-			</div>
-		</div>
-	</div>
+	{% include "@erp_e_invoice/warehouse-filter.html.twig" %}
+
 	<div class="flex-grow-1 min-h-0 min-w-0 p-2 bg-white">
 		<div class="d-flex flex-column h-100 text-center">
 			<h4 class="text-uppercase fw-bold my-2" id="title-report">
-				{{ "List of import invoices"|t }}
+				{{ "List of goods receipt notes"|t }}
 			</h4>
+
+			<div class="small text-muted mb-2">
+				{{ "Report period"|t }}:
+				{% if filter.date.start or filter.date.end %}
+					{{ filter.date.start ? filter.date.start|date("d/m/Y") : "..." }}
+					-
+					{{ filter.date.end ? filter.date.end|date("d/m/Y") : "..." }}
+				{% else %}
+					{{ "Full date"|t }}
+				{% endif %}
+			</div>
+
 			<div class="invoice-toolbar d-flex flex-wrap align-items-center gap-2 mb-2">
 				<select id="invoice-page-size-import" class="form-select form-select-sm invoice-page-size">
 					{% for page_size in filter.option_page_size %}
@@ -36,17 +26,30 @@
 					<option value="0">{{ "All"|t }}</option>
 				</select>
 				<span class="small text-muted text-nowrap invoice-range"></span>
+				<button type="button" class="btn btn-success btn-sm text-nowrap btn-export-excel ms-auto">
+					<i class="bi bi-file-earmark-excel me-1"></i>{{ "Export Excel"|t }}
+				</button>
 			</div>
 
+			{% if data is empty %}
+				<p class="text-muted py-3">{{ "No goods receipt note in this period."|t }}</p>
+			{% endif %}
+
 			<div class="flex-grow-1 min-h-0 min-w-0 invoice-table-wrapper">
-				<table class="table table-hover table-bordered table-striped invoice-table" data-table-key="import-warehouse">
+				<table class="table table-hover table-bordered table-striped invoice-table"
+					data-table-key="import-warehouse"
+					data-export-name="{{ "List of goods receipt notes"|t }}"
+					data-export-title="{{ "List of goods receipt notes"|t }}{% if filter.export.warehouse %} - {{ filter.export.warehouse }}{% endif %}"
+					data-export-period="{{ "Report period"|t }}: {{ filter.export.period }}"
+					data-export-range="{{ filter.export.range }}">
 					<thead class="text-center">
 						<tr>
 							<th class="text-nowrap" data-col-sort="0" data-col-index="1">{{ "Nº"|t }}</th>
 							<th>{{ "Title"|t }}</th>
 							<th class="text-nowrap">{{ "Date import"|t }}</th>
 							<th class="w-15">{{ "Supplier"|t }}</th>
-							<th>{{ "Company"|t }}</th>
+							<th>{{ "Warehouse"|t }}</th>
+							<th class="text-nowrap">{{ "Quantity"|t }}</th>
 							<th class="text-nowrap">{{ "Total vat"|t }}</th>
 							<th class="text-nowrap">{{ "Total amount"|t }}</th>
 							<th>{{ "Invoice"|t }}</th>
@@ -57,28 +60,25 @@
 							<tr>
 								<td class="text-center" data-value="{{ loop.index }}">{{ loop.index }}</td>
 								<td class="text-start">
-									<a href="{{ path('<front>') }}node-uuid/{{ item.uuid }}" class="list-unstyled" target="_blank">{{ item.title }}</a>
-								</td>
-								<td class="text-center">
-									{{ item.date| date("d/m/Y") }}
-								</td>
-								<td class="text-start">
-									{{ item.supplier }}
-								</td>
-								<td class="text-start">
-									{{ item.company }}
-								</td>
-								<td class="text-end" data-value="{{ item.total_vat }}">
-									{{ item.total_vat|number_format(0, ",", ".") }}
-								</td>
-								<td class="text-end" data-value="{{ item.total_amount }}">
-									{{ item.total_amount|number_format(0, ",", ".") }}
-								</td>
-								<td class="text-start">
-									<a href="{{ path('<front>') }}invoice-uuid/{{ item.invoice_uuid }}" class="dropdown-item use-ajax"
-										data-dialog-type="modal" data-dialog-options="{&quot;width&quot;:&quot;70%&quot;,&quot;title&quot;:&quot;&quot;}">
-										{{ item.invoice_title }}
+									<a href="{{ item.url }}" class="list-unstyled use-ajax"
+										data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
+										{{ item.title }}
 									</a>
+									<small class="d-block text-muted">{{ "Lines"|t }}: {{ item.lines }}</small>
+								</td>
+								<td class="text-center">{{ item.date ? item.date|date("d/m/Y") }}</td>
+								<td class="text-start">{{ item.contact }}</td>
+								<td class="text-start">{{ item.warehouse }}</td>
+								<td class="text-end" data-value="{{ item.quantity }}">{{ item.quantity|number_format(0, ",", ".") }}</td>
+								<td class="text-end" data-value="{{ item.total_vat }}">{{ item.total_vat|number_format(0, ",", ".") }}</td>
+								<td class="text-end" data-value="{{ item.total_amount }}">{{ item.total_amount|number_format(0, ",", ".") }}</td>
+								<td class="text-start">
+									{% if item.invoice_uuid %}
+										<a href="{{ path('<front>') }}invoice-uuid/{{ item.invoice_uuid }}" class="dropdown-item use-ajax"
+											data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
+											{{ item.invoice_title }}
+										</a>
+									{% endif %}
 								</td>
 							</tr>
 						{% endfor %}
@@ -86,7 +86,6 @@
 				</table>
 			</div>
 
-			{# Phân trang chạy trên trình duyệt, danh sách dòng đã có sẵn trong bảng. #}
 			<nav class="invoice-pagination d-flex justify-content-center mt-2" aria-label="{{ "Pagination"|t }}">
 				<ul class="pagination pagination-sm mb-0 invoice-pages"></ul>
 			</nav>

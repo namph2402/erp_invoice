@@ -647,6 +647,31 @@
   }
 
   /**
+   * Dòng tiêu đề của file xuất: tên báo cáo và kỳ số liệu.
+   *
+   * Người nhận file thường không biết bảng được lọc theo khoảng ngày nào, nên
+   * kỳ phải nằm trong chính file chứ không chỉ trên màn hình.
+   */
+  function getExportMeta(table) {
+    var lines = [table.dataset.exportTitle, table.dataset.exportPeriod].filter(function (line) {
+      return line;
+    });
+
+    if (!lines.length) {
+      return [];
+    }
+
+    var rows = lines.map(function (line) {
+      return [{ value: line, number: false }];
+    });
+
+    // Dòng trống ngăn phần tiêu đề với phần bảng.
+    rows.push([{ value: '', number: false }]);
+
+    return rows;
+  }
+
+  /**
    * Lấy dữ liệu bảng theo đúng các cột đang hiển thị.
    */
   function getExportRows(table) {
@@ -658,7 +683,7 @@
       return { value: column.label, number: false };
     })];
 
-    table.querySelectorAll('tbody tr').forEach(function (row) {
+    table.querySelectorAll('tbody tr, tfoot tr').forEach(function (row) {
       rows.push(columns.map(function (column) {
         var cell = row.cells[column.index];
 
@@ -811,10 +836,12 @@
     return name;
   }
 
-  function sheetXml(rows) {
+  function sheetXml(rows, headerIndex) {
     var widths = [];
 
-    rows.forEach(function (row) {
+    // Dòng tiêu đề chỉ có một ô và rất dài, tính vào đây thì cột đầu bị kéo
+    // rộng hết cỡ.
+    rows.slice(headerIndex).forEach(function (row) {
       row.forEach(function (cell, index) {
         var length = String(cell.number ? Math.round(cell.value) : cell.value).length + 4;
         widths[index] = Math.min(60, Math.max(widths[index] || 10, length));
@@ -823,7 +850,10 @@
 
     var xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-      + '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+      + '<sheetViews><sheetView workbookViewId="0">'
+      + '<pane ySplit="' + (headerIndex + 1) + '" topLeftCell="A' + (headerIndex + 2) + '"'
+      + ' activePane="bottomLeft" state="frozen"/>'
+      + '</sheetView></sheetViews>'
       + '<cols>';
 
     widths.forEach(function (width, index) {
@@ -837,7 +867,17 @@
 
       row.forEach(function (cell, cellIndex) {
         var reference = columnName(cellIndex) + (rowIndex + 1);
-        var style = rowIndex === 0 ? 1 : (cell.number ? 2 : 3);
+        var style;
+
+        if (rowIndex < headerIndex) {
+          style = 4;
+        }
+        else if (rowIndex === headerIndex) {
+          style = 1;
+        }
+        else {
+          style = cell.number ? 2 : 3;
+        }
 
         if (cell.number) {
           xml += '<c r="' + reference + '" s="' + style + '"><v>' + cell.value + '</v></c>';
@@ -877,18 +917,19 @@
       + '<diagonal/></border>'
       + '</borders>'
       + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-      + '<cellXfs count="4">'
+      + '<cellXfs count="5">'
       + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
       + '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">'
       + '<alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
       + '<xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/>'
       + '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>'
+      + '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
       + '</cellXfs>'
       + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
       + '</styleSheet>';
   }
 
-  function buildWorkbook(rows, sheetName) {
+  function buildWorkbook(rows, sheetName, headerIndex) {
     var name = escapeXml(sheetName.replace(/[\\\/\?\*\[\]:]/g, ' ').substring(0, 31)) || 'Sheet1';
 
     return zipStore([
@@ -927,7 +968,7 @@
           + '</Relationships>'
       },
       { name: 'xl/styles.xml', data: stylesXml() },
-      { name: 'xl/worksheets/sheet1.xml', data: sheetXml(rows) }
+      { name: 'xl/worksheets/sheet1.xml', data: sheetXml(rows, headerIndex || 0) }
     ]);
   }
 
@@ -954,13 +995,18 @@
       return;
     }
 
+    var meta = getExportMeta(table);
     var name = table.dataset.exportName || Drupal.t('Invoices');
+    var range = table.dataset.exportRange ? '-' + table.dataset.exportRange : '';
     var today = new Date();
     var stamp = today.getFullYear()
       + ('0' + (today.getMonth() + 1)).slice(-2)
       + ('0' + today.getDate()).slice(-2);
 
-    downloadBlob(buildWorkbook(rows, name), name + '-' + stamp + '.xlsx');
+    downloadBlob(
+      buildWorkbook(meta.concat(rows), name, meta.length),
+      name + range + '-' + stamp + '.xlsx'
+    );
   }
 
   Drupal.behaviors.invoiceTable = {
@@ -987,7 +1033,25 @@
 
         scope.querySelectorAll('.btn-export-excel').forEach(function (button) {
           button.addEventListener('click', function () {
-            exportTable(table);
+            var loading = Drupal.eInvoiceLoading;
+
+            if (!loading) {
+              exportTable(table);
+              return;
+            }
+
+            // Dựng file chạy đồng bộ và khoá luôn trình duyệt, nên phải nhường
+            // một nhịp cho lớp phủ kịp vẽ ra rồi mới làm.
+            loading.show(Drupal.t('Preparing the Excel file...'), true);
+
+            window.setTimeout(function () {
+              try {
+                exportTable(table);
+              }
+              finally {
+                loading.hide();
+              }
+            }, 50);
           });
         });
       });

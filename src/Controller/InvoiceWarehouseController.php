@@ -3,18 +3,20 @@
 namespace Drupal\erp_e_invoice\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
-use Drupal\Core\File\FileUrlGeneratorInterface;
-use Drupal\Core\Entity\EntityFieldManagerInterface;
-use Drupal\Component\Uuid\UuidInterface;
+use Drupal\Core\Url;
+use Drupal\erp_e_invoice\InvoiceService;
+use Drupal\erp_e_invoice\WarehouseService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
-use Drupal\e_invoice\Service\GetConfigInvoice;
-use Drupal\e_invoice\Service\HandleInvoice;
-use Drupal\erp_e_invoice\InvoiceService;
 
 /**
- * Returns responses for ERPCons accountant out invoice routes.
+ * Sổ kho của hóa đơn điện tử.
+ *
+ * Cả ba báo cáo (phiếu nhập, phiếu xuất, tồn kho) đều đọc từ entity
+ * warehouse_transaction nên luôn khớp nhau: cùng một kho, cùng một kỳ thì tổng
+ * cột "nhập trong kỳ" của báo cáo tồn kho bằng đúng tổng số lượng của các phiếu
+ * nhập đang liệt kê.
  */
 class InvoiceWarehouseController extends ControllerBase {
 
@@ -22,12 +24,8 @@ class InvoiceWarehouseController extends ControllerBase {
    * The controller constructor.
    */
   public function __construct(
-    protected GetConfigInvoice $config,
-    protected HandleInvoice $handleInvoice,
-    protected FileUrlGeneratorInterface $fileUrlGenerator,
-    protected EntityFieldManagerInterface $entityFieldManager,
-    protected UuidInterface $uuid,
     protected InvoiceService $invoiceService,
+    protected WarehouseService $warehouseService,
   ) {}
 
   /**
@@ -35,134 +33,60 @@ class InvoiceWarehouseController extends ControllerBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get("e_invoice.get_config"),
-      $container->get("e_invoice.handle_invoice"),
-      $container->get("file_url_generator"),
-      $container->get("entity_field.manager"),
-      $container->get("uuid"),
       $container->get("erp_e_invoice.invoice_service"),
+      $container->get("erp_e_invoice.warehouse_service"),
     );
   }
 
   /**
-   * Phiếu nhập hàng.
+   * Danh sách phiếu nhập kho.
    */
   public function listInvoiceImport(Request $request) {
-    $data = $this->getData($request, "import_warehouse");
-
-    return [
-      "#theme" => "list_import_invoice",
-      "#data" => $data["items"],
-      "#filter" => [
-        "date" => [
-          "start" => $data["start_date"] ? date("Y-m-d", strtotime($data["start_date"])) : NULL,
-          "end" => $data["end_date"] ? date("Y-m-d", strtotime($data["end_date"])) : NULL,
-        ],
-        "company_id" => $data["company_id"],
-        "option_company" => $data["option_company"],
-        "page_size" => $data["page_size"],
-        "option_page_size" => $data["option_page_size"],
-        "destination" => $request->getRequestUri(),
-        "current_user" => $this->currentUser()->getAccountName(),
-      ],
-      "#attached" => [
-        "library" => [
-          "erp_e_invoice/e_invoice",
-        ],
-      ],
-      "#cache" => ["max-age" => 0],
-    ];
+    return $this->buildTransactionList($request, WarehouseService::IMPORT);
   }
 
   /**
-   * Phiếu xuất hàng.
+   * Danh sách phiếu xuất kho.
    */
   public function listInvoiceExport(Request $request) {
-    $data = $this->getData($request, "warehouse_storage_history");
-
-    return [
-      "#theme" => "list_export_invoice",
-      "#data" => $data["items"],
-      "#filter" => [
-        "date" => [
-          "start" => $data["start_date"] ? date("Y-m-d", strtotime($data["start_date"])) : NULL,
-          "end" => $data["end_date"] ? date("Y-m-d", strtotime($data["end_date"])) : NULL,
-        ],
-        "company_id" => $data["company_id"],
-        "option_company" => $data["option_company"],
-        "page_size" => $data["page_size"],
-        "option_page_size" => $data["option_page_size"],
-        "destination" => $request->getRequestUri(),
-        "current_user" => $this->currentUser()->getAccountName(),
-      ],
-      "#attached" => [
-        "library" => [
-          "erp_e_invoice/e_invoice",
-        ],
-      ],
-      "#cache" => ["max-age" => 0],
-    ];
+    return $this->buildTransactionList($request, WarehouseService::EXPORT);
   }
 
   /**
-   * Phiếu xuất hàng.
+   * Báo cáo tồn đầu kỳ - nhập - xuất - tồn cuối kỳ.
    */
-  public function listWarehouse() {
-    $data = [];
-    $suppliesManage = $this->entityTypeManager()->getStorage("supplies");
-    $warehouse_id = $this->invoiceService->findWarehouse();
+  public function listWarehouse(Request $request) {
+    $scope = $this->getScope($request);
 
-    // Danh sách term vật tư + thuế.
-    $list_taxs = $this->invoiceService->loadTerm("tax", "id", "field_tax_number");
-    $list_units = $this->invoiceService->loadTerm("unit", "id");
+    $data = $scope["warehouse_id"]
+      ? $this->warehouseService->report($scope["warehouse_id"], $scope["range"], $scope["declared"])
+      : [];
 
-    $supplies_ids = $suppliesManage->getQuery()
-      ->condition("field_sup_list_warehouse", $warehouse_id)
-      ->sort("title", "ASC")
-      ->accessCheck(TRUE)
-      ->execute();
+    $units = $this->invoiceService->loadTerm("unit", "id");
+    $taxs = $this->invoiceService->loadTerm("tax", "id", "field_tax_number");
 
-    $supplies = $suppliesManage->loadMultiple($supplies_ids);
+    $totals = [
+      "begin" => 0,
+      "import" => 0,
+      "export" => 0,
+      "end" => 0,
+    ];
 
-    /** @var \Drupal\eck\Entity\EckEntity $supplie */
-    foreach ($supplies as $supplie) {
-      $quantity = 0;
+    foreach ($data as $key => $row) {
+      $data[$key]["unit"] = $units[$row["unit_id"]] ?? "";
+      $data[$key]["tax"] = $taxs[$row["tax_id"]] ?? "";
 
-      /** @var \Drupal\Core\Field\EntityReferenceFieldItemListInterface $warehouse_field */
-      $warehouse_field = $supplie->get('field_sup_warehouse');
-      $list_warehouse = $warehouse_field->referencedEntities();
-
-      /** @var \Drupal\paragraphs\Entity\Paragraph $warehouse */
-      foreach ($list_warehouse as $warehouse) {
-        if ($warehouse->get("field_warehouse")->target_id == $warehouse_id) {
-          $quantity = $warehouse->get("field_warehouse_quantity")->value ?? 0;
-          break;
-        }
+      foreach ($totals as $column => $total) {
+        $totals[$column] = $total + $row[$column];
       }
-
-      $unit_id = $supplie->get("field_sup_unit_buy")->target_id;
-      $unit = $list_units[$unit_id] ?? "";
-
-      $tax_id = $supplie->get("field_sup_tax")->target_id;
-      $tax = $list_taxs[$tax_id] ?? "";
-
-      $data[] = [
-        "id" => $supplie->id(),
-        "uuid" => $supplie->uuid(),
-        "name" => $supplie->label(),
-        "code" => $supplie->get("field_sup_code")->value,
-        "unit" => $unit,
-        "tax" => $tax,
-        "quantity" => $quantity
-      ];
     }
 
     return [
       "#theme" => "list_warehouse_invoice",
       "#data" => $data,
-      "#filter" => [
-        "page_size" => InvoiceService::DEFAULT_PAGE_SIZE,
-        "option_page_size" => InvoiceService::PAGE_SIZES,
+      "#filter" => $this->filterVariables($scope, $request) + [
+        "totals" => $totals,
+        "differences" => $this->differenceRows($scope["balance"]),
       ],
       "#attached" => [
         "library" => [
@@ -174,102 +98,386 @@ class InvoiceWarehouseController extends ControllerBase {
   }
 
   /**
-   * Chi tiết phiếu nhập.
+   * Chi tiết các lần nhập của một vật tư trong kỳ.
    */
-  public function detailInvoiceImport(string|int $id) {
-    $data = [];
-    /** @var \Drupal\eck\Entity\EckEntity $supplie */
-    $supplie = $this->entityTypeManager()->getStorage("supplies")->load($id);
-
-    if (!$supplie || !$supplie->hasField("field_sup_import_history")) {
-      throw new NotFoundHttpException();
-    }
-
-    /** @var \Drupal\Core\Field\EntityReferenceFieldItemListInterface $import_history_field */
-    $import_history_field = $supplie->get('field_sup_import_history');
-    $list_detail = $import_history_field->referencedEntities();
-
-    foreach ($list_detail as $detail) {
-      /** @var \Drupal\paragraphs\Entity\Paragraph $detail */
-      if ($detail->hasField("field_document_type") &&
-        $detail->get("field_document_type")->value === "e_invoice") {
-        $invoice = $detail->get("field_ih_invoice")->entity;
-        $import = $detail->get("field_ih_receipt")->entity;
-
-        $data[] = [
-          "date" => $detail->get("field_ih_received_date")->value,
-          "quantity" => $detail->get("field_ih_quantity")->value,
-          "price" => $detail->get("field_ih_purchase_price")->value,
-          "invoice_uuid"=> $invoice?->uuid(),
-          "invoice_title"=> $invoice?->label(),
-          "import_uuid"=> $import?->uuid(),
-          "import_title"=> $import?->label(),
-        ];
-      }
-    }
-
-    return [
-      "#theme" => "detail_import_invoice",
-      "#data" => $data,
-      "#cache" => ["max-age" => 0],
-    ];
+  public function detailInvoiceImport(Request $request, string|int $id) {
+    return $this->buildDetail($request, $id, WarehouseService::IMPORT);
   }
 
   /**
-   * Chi tiết phiếu xuất.
+   * Chi tiết các lần xuất của một vật tư trong kỳ.
    */
-  public function detailInvoiceExport(string|int $id) {
-    $data = [];
-
-    /** @var \Drupal\eck\Entity\EckEntity $supplie */
-    $supplie = $this->entityTypeManager()->getStorage("supplies")->load($id);
-
-    if (!$supplie || !$supplie->hasField("field_sup_export_history")) {
-      throw new NotFoundHttpException();
-    }
-
-    /** @var \Drupal\Core\Field\EntityReferenceFieldItemListInterface $export_history_field */
-    $export_history_field = $supplie->get('field_sup_export_history');
-    $list_detail = $export_history_field->referencedEntities();
-
-    foreach ($list_detail as $detail) {
-      /** @var \Drupal\paragraphs\Entity\Paragraph $detail */
-      if ($detail->hasField("field_document_type") &&
-        $detail->get("field_document_type")->value === "e_invoice") {
-        $invoice = $detail->get("field_he_invoice")->entity;
-        $export = $detail->get("field_he_export")->entity;
-        $data[] = [
-          "date" => $detail->get("field_he_date_export")->value,
-          "quantity" => $detail->get("field_he_output_quantity")->value,
-          "price" => $detail->get("field_he_price")->value,
-          "invoice_uuid"=> $invoice?->uuid(),
-          "invoice_title"=> $invoice?->label(),
-          "export_uuid"=> $export?->uuid(),
-          "export_title"=> $export?->label(),
-        ];
-      }
-    }
-
-    return [
-      "#theme" => "detail_export_invoice",
-      "#data" => $data,
-      "#cache" => ["max-age" => 0],
-    ];
+  public function detailInvoiceExport(Request $request, string|int $id) {
+    return $this->buildDetail($request, $id, WarehouseService::EXPORT);
   }
 
   /**
-   * Lấy dữ liệu phiếu.
+   * Danh sách phiếu theo chiều nhập hoặc xuất.
    *
-   * Truy vấn lấy hết phiếu khớp bộ lọc, việc chia trang do bảng phía trình
-   * duyệt xử lý nên ở đây không dùng pager của máy chủ.
+   * @param Request $request
+   *   Yêu cầu hiện tại.
+   * @param string $type
+   *   "import" hoặc "export".
    */
-  private function getData(Request $request, string $type) {
-    $nodeManage = $this->entityTypeManager()->getStorage("node");
-    $termManage = $this->entityTypeManager()->getStorage("taxonomy_term");
+  private function buildTransactionList(Request $request, string $type): array {
+    $scope = $this->getScope($request);
+    $data = [];
 
-    // Bộ lọc.
-    $start_date = !empty($request->query->get("start_date")) ? $request->query->get("start_date") : date("Y-m-01");
-    $end_date = !empty($request->query->get("end_date")) ? $request->query->get("end_date") : date("Y-m-d");
+    $transactions = $scope["warehouse_id"]
+      ? $this->warehouseService->loadTransactions($scope["warehouse_id"], $scope["range"], $type)
+      : [];
+
+    $details = $this->warehouseService->loadDetails($transactions);
+
+    /** @var \Drupal\e_invoice\WarehouseTransactionInterface $transaction */
+    foreach ($transactions as $transaction) {
+      $invoice = $transaction->get("field_invoice")->entity;
+      $lines = $details[$transaction->id()] ?? [];
+
+      $data[] = [
+        "id" => $transaction->id(),
+        "url" => $transaction->toUrl()->toString(),
+        "title" => $transaction->label(),
+        "date" => substr((string) $transaction->get("field_implementation_date")->value, 0, 10),
+        "warehouse" => $transaction->get("field_warehouse")->entity?->label() ?? "",
+        "contact" => $transaction->get("field_contact")->entity?->label() ?? "",
+        "lines" => count($lines),
+        "quantity" => array_sum(array_column($lines, "quantity")),
+        "total_vat" => (float) ($transaction->get("field_total_vat")->value ?? 0),
+        "total_amount" => (float) ($transaction->get("field_total_amount")->value ?? 0),
+        "invoice_uuid" => $invoice?->uuid() ?? "",
+        "invoice_title" => $invoice ? ($invoice->get("field_invoice_no")->value ?: $invoice->label()) : "",
+      ];
+    }
+
+    return [
+      "#theme" => $type === WarehouseService::IMPORT ? "list_import_invoice" : "list_export_invoice",
+      "#data" => $data,
+      "#filter" => $this->filterVariables($scope, $request),
+      "#attached" => [
+        "library" => [
+          "erp_e_invoice/e_invoice",
+        ],
+      ],
+      "#cache" => ["max-age" => 0],
+    ];
+  }
+
+  /**
+   * Các dòng phiếu của một vật tư trong kỳ.
+   *
+   * @param Request $request
+   *   Yêu cầu hiện tại.
+   * @param string|int $id
+   *   Vật tư cần xem.
+   * @param string $type
+   *   "import" hoặc "export".
+   */
+  private function buildDetail(Request $request, string|int $id, string $type): array {
+    $scope = $this->getScope($request);
+
+    if (empty($scope["warehouse_id"])) {
+      throw new NotFoundHttpException();
+    }
+
+    $data = [];
+    $transactions = $this->warehouseService->loadTransactions($scope["warehouse_id"], $scope["range"], $type);
+    $details = $this->warehouseService->loadDetails($transactions);
+
+    /** @var \Drupal\e_invoice\WarehouseTransactionInterface $transaction */
+    foreach ($transactions as $transaction) {
+      foreach ($details[$transaction->id()] ?? [] as $line) {
+        if ((string) $line["item_id"] !== (string) $id) {
+          continue;
+        }
+
+        $invoice = $transaction->get("field_invoice")->entity;
+
+        $data[] = [
+          "date" => substr((string) $transaction->get("field_implementation_date")->value, 0, 10),
+          "quantity" => $line["quantity"],
+          "price" => $line["price"],
+          "amount" => $line["amount"],
+          "contact" => $transaction->get("field_contact")->entity?->label() ?? "",
+          "url" => $transaction->toUrl()->toString(),
+          "title" => $transaction->label(),
+          "invoice_uuid" => $invoice?->uuid(),
+          "invoice_title" => $invoice ? ($invoice->get("field_invoice_no")->value ?: $invoice->label()) : "",
+        ];
+      }
+    }
+
+    return [
+      "#theme" => $type === WarehouseService::IMPORT ? "detail_import_invoice" : "detail_export_invoice",
+      "#data" => $data,
+      "#cache" => ["max-age" => 0],
+    ];
+  }
+
+  /**
+   * Kho, kỳ và khoảng ngày đang xem.
+   *
+   * Kỳ chọn sẵn là kỳ chứa hôm nay: mở báo cáo lên là thấy ngay số liệu kỳ đang
+   * làm việc mà không phải bấm gì. Khi người dùng tự nhập ngày thì khoảng ngày
+   * đó thắng, và tồn đầu được tính lại từ lịch sử thay vì lấy số đã khai.
+   *
+   * @param Request $request
+   *   Yêu cầu hiện tại.
+   *
+   * @return array
+   *   Bộ lọc đã chuẩn hoá.
+   */
+  private function getScope(Request $request): array {
+    /** @var \Drupal\user\Entity\User|null $user */
+    $user = $this->entityTypeManager()
+      ->getStorage("user")
+      ->load($this->currentUser()->id());
+
+    $companies = $user ? $this->invoiceService->userCompanies($user) : [];
+    $company_id = $request->query->get("company_id") ?: array_key_first($companies);
+
+    // Chưa gán công ty thì không thấy kho nào, thay vì thấy toàn bộ.
+    $warehouses = $this->warehouseService->warehouseOptions(
+      $company_id ? $this->invoiceService->companyScope([$company_id]) : [0]
+    );
+
+    $warehouse_id = $request->query->get("warehouse_id");
+
+    if (empty($warehouse_id) || !isset($warehouses[$warehouse_id])) {
+      $warehouse_id = array_key_first($warehouses);
+    }
+
+    $periods = $warehouse_id ? $this->warehouseService->periodOptions($warehouse_id) : [];
+    $period_id = $request->query->get("period_id") ?: NULL;
+
+    if (!empty($period_id) && !isset($periods[$period_id])) {
+      $period_id = NULL;
+    }
+
+    $balance = NULL;
+
+    if (!empty($period_id)) {
+      $balance = $this->entityTypeManager()
+        ->getStorage("warehouse_transaction")
+        ->load($period_id);
+    }
+
+    // Lần đầu mở báo cáo: bám vào kỳ đang chạy để thấy ngay số liệu kỳ này.
+    if (empty($balance) && $warehouse_id && !$request->query->has("period_id") && !$this->hasDateFilter($request)) {
+      $balance = $this->warehouseService->findPeriod($warehouse_id, date("Y-m-d"));
+    }
+
+    $period_range = $this->warehouseService->periodRange($balance);
+
+    // Kỳ chỉ định mốc tồn đầu, còn hai ô ngày vẫn lọc được: kế toán thu hẹp
+    // trong kỳ để xem phát sinh của từng đoạn thời gian.
+    $range = $this->hasDateFilter($request) || empty($balance)
+      ? $this->getPeriod($request)
+      : $period_range;
+
+    return [
+      "companies" => $companies,
+      "company_id" => $company_id,
+      "warehouses" => $warehouses,
+      "warehouse_id" => $warehouse_id,
+      "periods" => $periods,
+      "period_ranges" => $this->periodRanges($warehouse_id),
+      "period_id" => $balance?->id(),
+      "balance" => $balance,
+      // Số tồn đầu đã khai chỉ dùng được khi báo cáo bắt đầu đúng ngày đầu kỳ.
+      // Thu hẹp khoảng ngày thì tồn đầu phải cộng thêm phát sinh từ đầu kỳ tới
+      // trước ngày bắt đầu, để báo cáo tự tính lại từ lịch sử.
+      "declared" => $balance && ($range["start"] ?? NULL) === ($period_range["start"] ?? NULL)
+        ? $balance
+        : NULL,
+      "range" => $range,
+    ];
+  }
+
+  /**
+   * Khoảng ngày của từng kỳ, để ô chọn kỳ điền sẵn hai ô ngày.
+   *
+   * @param string|int|null $warehouse_id
+   *   Kho đang xem.
+   *
+   * @return array
+   *   Id kỳ ánh xạ sang mảng "start" và "end".
+   */
+  private function periodRanges(string|int|null $warehouse_id): array {
+    $ranges = [];
+
+    if (empty($warehouse_id)) {
+      return $ranges;
+    }
+
+    foreach ($this->warehouseService->loadPeriods($warehouse_id) as $period) {
+      $ranges[$period->id()] = $this->warehouseService->periodRange($period);
+    }
+
+    return $ranges;
+  }
+
+  /**
+   * Biến bộ lọc dùng chung cho ba mẫu hiển thị.
+   *
+   * @param array $scope
+   *   Bộ lọc đã chuẩn hoá.
+   * @param Request $request
+   *   Yêu cầu hiện tại.
+   */
+  private function filterVariables(array $scope, Request $request): array {
+    $query = [
+      "warehouse_id" => $scope["warehouse_id"],
+      "start_date" => $scope["range"]["start"],
+      "end_date" => $scope["range"]["end"],
+    ];
+
+    return [
+      "date" => $scope["range"],
+      "company_id" => $scope["company_id"],
+      "option_company" => $scope["companies"],
+      "warehouse_id" => $scope["warehouse_id"],
+      "option_warehouse" => $scope["warehouses"],
+      "period_id" => $scope["period_id"],
+      "option_period" => $scope["periods"],
+      "period_ranges" => $scope["period_ranges"],
+      "declared" => (bool) $scope["declared"],
+      // Bảng chi tiết mở trong hộp thoại phải lọc đúng kho và kỳ đang xem, nên
+      // luôn gửi kèm thay vì để nó tự lấy mặc định.
+      "query" => "?" . http_build_query(array_filter($query)),
+      "period_url" => Url::fromRoute("erp_e_invoice.e_invoice_warehouse_period", [], [
+        "query" => array_filter([
+          "warehouse" => $scope["warehouse_id"],
+          "start" => $scope["range"]["start"],
+          "end" => $scope["range"]["end"],
+          "destination" => $request->getRequestUri(),
+        ]),
+      ])->toString(),
+      // Kỳ đang chọn có thể phải khai lại khi kỳ trước bị sửa, nên báo cáo mở
+      // thẳng form cập nhật thay vì bắt đi tìm bản ghi.
+      "period_edit_url" => $scope["period_id"]
+        ? Url::fromRoute("erp_e_invoice.e_invoice_warehouse_period_edit", [
+          "warehouse_transaction" => $scope["period_id"],
+        ], [
+          "query" => [
+            "destination" => $request->getRequestUri(),
+          ],
+        ])->toString()
+        : NULL,
+      "warehouse_url" => Url::fromRoute("entity.warehouse_invoice.add_form", [
+        "warehouse_invoice_type" => WarehouseService::WAREHOUSE_BUNDLE,
+      ], [
+        "query" => [
+          "destination" => $request->getRequestUri(),
+        ],
+      ])->toString(),
+      "export" => $this->exportInfo($scope),
+      "page_size" => InvoiceService::DEFAULT_PAGE_SIZE,
+      "option_page_size" => InvoiceService::PAGE_SIZES,
+      "destination" => $request->getRequestUri(),
+      "current_user" => $this->currentUser()->getAccountName(),
+    ];
+  }
+
+  /**
+   * Thông tin kỳ số liệu đi kèm file Excel.
+   *
+   * Người nhận file không thấy được bộ lọc trên màn hình, nên kỳ phải nằm trong
+   * chính file và trong tên file.
+   *
+   * @param array $scope
+   *   Bộ lọc đã chuẩn hoá.
+   *
+   * @return array
+   *   "period" là dòng chữ đặt trên bảng, "range" là phần thêm vào tên file,
+   *   "warehouse" là tên kho đang xem.
+   */
+  private function exportInfo(array $scope): array {
+    $start = $scope["range"]["start"] ?? NULL;
+    $end = $scope["range"]["end"] ?? NULL;
+
+    $info = [
+      "warehouse" => $scope["warehouses"][$scope["warehouse_id"]] ?? "",
+      "period" => (string) $this->t("Full date"),
+      "range" => "",
+    ];
+
+    if (empty($start) && empty($end)) {
+      return $info;
+    }
+
+    $info["period"] = (string) $this->t("From @start to @end", [
+      "@start" => $start ? date("d/m/Y", strtotime($start)) : "...",
+      "@end" => $end ? date("d/m/Y", strtotime($end)) : "...",
+    ]);
+
+    $info["range"] = ($start ? date("Ymd", strtotime($start)) : "")
+      . "-" . ($end ? date("Ymd", strtotime($end)) : "");
+
+    return $info;
+  }
+
+  /**
+   * Vật tư có tồn đầu kỳ lệch so với tồn cuối kỳ trước.
+   *
+   * @param \Drupal\e_invoice\WarehouseTransactionInterface|null $balance
+   *   Bản ghi tồn đầu kỳ đang xem.
+   */
+  private function differenceRows($balance): array {
+    if (empty($balance)) {
+      return [];
+    }
+
+    $differences = $this->warehouseService->periodDifferences($balance);
+
+    if (empty($differences)) {
+      return [];
+    }
+
+    $supplies = $this->entityTypeManager()
+      ->getStorage("supplies")
+      ->loadMultiple(array_keys($differences));
+
+    $rows = [];
+
+    foreach ($differences as $supply_id => $difference) {
+      $rows[] = $difference + [
+        "name" => ($supplies[$supply_id] ?? NULL)?->label() ?? "#" . $supply_id,
+      ];
+    }
+
+    return $rows;
+  }
+
+  /**
+   * Người dùng có tự chọn khoảng ngày thay vì chọn kỳ không.
+   */
+  private function hasDateFilter(Request $request): bool {
+    return (bool) ($request->query->get("start_date")
+      || $request->query->get("end_date")
+      || $request->query->get("search_date"));
+  }
+
+  /**
+   * Kỳ báo cáo lấy từ bộ lọc trên URL.
+   *
+   * Mặc định là từ đầu tháng đến hôm nay. Các nút chọn nhanh gửi lên
+   * "search_date", trong đó "full_date" nghĩa là bỏ giới hạn ngày.
+   *
+   * @return array
+   *   Mảng "start" và "end" dạng Y-m-d, NULL khi không giới hạn.
+   */
+  private function getPeriod(Request $request): array {
+    // Ô ngày gửi lên rỗng nghĩa là người dùng chủ động bỏ giới hạn, chỉ khi
+    // chưa gửi ô nào mới lấy mặc định tháng này.
+    $has_date_filter = $request->query->has("start_date") || $request->query->has("end_date");
+
+    $start_date = $request->query->get("start_date")
+      ?: ($has_date_filter ? NULL : date("Y-m-01"));
+
+    $end_date = $request->query->get("end_date")
+      ?: ($has_date_filter ? NULL : date("Y-m-d"));
+
     $search_date = $request->query->get("search_date");
 
     if ($search_date === "last_month") {
@@ -284,73 +492,10 @@ class InvoiceWarehouseController extends ControllerBase {
       $start_date = $end_date = NULL;
     }
 
-    /** @var \Drupal\user\Entity\User $current_user */
-    $current_user = $this->entityTypeManager()
-      ->getStorage("user")
-      ->load($this->currentUser()->id());
-
-    // Danh sách công ty được gán.
-    $company_user = $current_user?->get("field_user_company")->entity;
-    $company_id = $request->query->get("company_id") ?? $company_user?->id();
-
-    // Chưa gán công ty thì không thấy phiếu nào, thay vì thấy toàn bộ.
-    $list_company_id = $company_id
-      ? $this->invoiceService->getDescendantTids($company_id, $termManage)
-      : [0];
-    $option_company = $current_user ? $this->invoiceService->getCurrentPosition($current_user) : [];
-
-    if ($company_user) {
-      $option_company[$company_user->id()] = $company_user->label();
-    }
-
-    $data = [
-      "company_id" => $company_id,
-      "option_company" => $option_company,
-      "start_date" => $start_date,
-      "end_date" => $end_date,
-      "page_size" => InvoiceService::DEFAULT_PAGE_SIZE,
-      "option_page_size" => InvoiceService::PAGE_SIZES,
-      "items" => []
+    return [
+      "start" => $start_date ? date("Y-m-d", strtotime($start_date)) : NULL,
+      "end" => $end_date ? date("Y-m-d", strtotime($end_date)) : NULL,
     ];
-
-    $field_type = $type === "import_warehouse" ? "field_iw_type" : "field_wsh_type";
-    $field_date = $type === "import_warehouse" ? "field_wsh_received_date" : "field_wsh_date_export";
-
-    $node_query = $nodeManage->getQuery()
-      ->condition("type", $type)
-      ->condition($field_type, "einvoice")
-      ->condition("field_company", $list_company_id, "IN")
-      ->sort($field_date, "DESC")
-      ->sort("created", "DESC")
-      ->accessCheck(TRUE);
-
-    if (!empty($start_date)) {
-      $node_query->condition($field_date . ".value", $start_date, ">=");
-    }
-    if (!empty($end_date)) {
-      $node_query->condition($field_date . ".value", $end_date, "<=");
-    }
-
-    $node_ids = $node_query->execute();
-    $node_invoices = $nodeManage->loadMultiple($node_ids);
-
-    /** @var \Drupal\node\Entity\Node $node */
-    foreach ($node_invoices as $node) {
-      $invoice = $node->get("field_e_invoice")->entity;
-
-      $data["items"][] = [
-        "uuid" => $node->uuid(),
-        "title" => $node->label(),
-        "date" => $node->get($field_date)->value,
-        "company" => $node->get("field_company")->entity?->label() ?? "",
-        "supplier" => $node->get("field_wsh_client")->entity?->label() ?? "",
-        "total_vat" => $node->get("field_wsh_total_tax")->value,
-        "total_amount" => $node->get("field_wsh_total_excl_tax")->value,
-        "invoice_uuid" => $invoice?->uuid() ?? "",
-        "invoice_title" => $invoice?->label() ?? "",
-      ];
-    }
-
-    return $data;
   }
+
 }

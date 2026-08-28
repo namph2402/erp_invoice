@@ -6,6 +6,7 @@
 					<input type="date" id="start-date" name="start_date" class="search-data form-control w-auto me-1" value="{{ filter.date.start }}"/>
 					<input type="date" id="end-date" name="end_date" class="search-data form-control w-auto me-1" value="{{ filter.date.end }}"/>
 				</div>
+				<input name="sell_name" class="search-data form-control w-auto me-1" placeholder="{{ "Seller name"|t }}" value="{{ filter.sell_name }}"/>
 				<select name="company_id" class="form-control">
 					<option value="">{{ "Select Company"|t }}</option>
 					{% for company_id, company_name in filter.option_company %}
@@ -73,6 +74,19 @@
 					<span class="small text-muted text-nowrap invoice-range"></span>
 				</div>
 				<div class="d-flex align-items-center gap-2">
+					<span class="small text-muted text-nowrap invoice-selected-label">
+						<span class="fw-bold invoice-selected-count">0</span>
+						{{ "invoices selected"|t }}
+					</span>
+					<button type="button" class="btn btn-outline-primary btn-sm text-nowrap btn-file-multiple" data-bs-toggle="modal" data-bs-target="#fileInvoiceModal" disabled>
+						<i class="bi bi-download me-1"></i>{{ "Download file"|t }}
+					</button>
+					<button type="button" class="btn btn-outline-success btn-sm text-nowrap btn-accountant-multiple" data-bs-toggle="modal" data-bs-target="#uuidInvoiceModal" disabled>
+						<i class="bi bi-journal-check me-1"></i>{{ "Accountant invoice"|t }}
+					</button>
+					<button type="button" class="btn btn-outline-warning btn-sm text-nowrap btn-items-multiple" disabled>
+						<i class="bi bi-box-arrow-in-down me-1"></i>{{ "Import selected invoices"|t }}
+					</button>
 					<div class="dropdown">
 						<button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle text-nowrap" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
 							<i class="bi bi-layout-three-columns me-1"></i>{{ "Columns"|t }}
@@ -85,11 +99,19 @@
 				</div>
 			</div>
 
-			<div class="flex-grow-1 min-h-0 min-w-0 invoice-table-wrapper">
+			<form method="POST" class="form-items-multiple d-none" action="{{ path("erp_e_invoice.e_invoice_update_items_multiple") }}">
+				<input type="hidden" name="uuids" class="input-items-uuid"/>
+				<input type="hidden" name="destination" value="{{ filter.destination }}"/>
+			</form>
+
+			<div class="flex-grow-1 min-h-0 min-w-0 invoice-table-wrapper" style="max-height: 80dvh">
 				<table class="table table-hover table-bordered table-striped invoice-table"
 					data-table-key="input-invoice" data-export-name="{{ "List of input invoices"|t }}">
 					<thead class="text-center">
 						<tr>
+							<th data-col-lock="1" data-col-sort="0" data-col-export="0" data-col-label="{{ "Select"|t }}">
+								<input type="checkbox" id="select-invoice-all" class="form-check-input"/>
+							</th>
 							<th class="text-nowrap" data-col-lock="1" data-col-sort="0" data-col-index="1">{{ 'Stt'|t }}</th>
 							<th class="text-nowrap" data-col-export="0" data-col-sort="0">{{ 'File'|t }}</th>
 							<th class="text-nowrap">{{ 'Invoice no'|t }}</th>
@@ -122,6 +144,9 @@
 					<tbody>
 						{% for item in data %}
 							<tr>
+								<td class="text-center">
+									<input type="checkbox" name="select-invoice" value="{{ item.uuid }}" class="form-check-input select-invoice"/>
+								</td>
 								<td class="text-center" data-value="{{ loop.index }}">{{ loop.index }}</td>
 								<td class="text-center">
 									{% if item.invoice_pdf is not empty %}
@@ -216,7 +241,7 @@
 										<ul class="dropdown-menu">
 											{% if item.invoice_import != 1 %}
 												<li>
-													<a href="{{ path('<front>') }}accountant/invoice/{{ item.uuid }}?destination={{ filter.destination }}" class="dropdown-item use-ajax" data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
+													<a href="{{ path('<front>') }}accountant/invoice/{{ item.uuid }}?destination={{ filter.destination }}" class="dropdown-item">
 														{{ "Import"|t }}
 													</a>
 												</li>
@@ -281,7 +306,6 @@
 				</table>
 			</div>
 
-			{# Phân trang chạy trên trình duyệt, danh sách dòng đã có sẵn trong bảng. #}
 			<nav class="invoice-pagination d-flex justify-content-center mt-2" aria-label="{{ "Pagination"|t }}">
 				<ul class="pagination pagination-sm mb-0 invoice-pages"></ul>
 			</nav>
@@ -293,3 +317,4 @@
 {{ include('@erp_e_invoice/templates/modal/modal-modified.html.twig') }}
 {{ include('@erp_e_invoice/templates/modal/modal-accountant.html.twig') }}
 {{ include('@erp_e_invoice/templates/modal/modal-payment.html.twig') }}
+{{ include('@erp_e_invoice/templates/modal/modal-file.html.twig') }}

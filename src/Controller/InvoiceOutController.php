@@ -138,6 +138,7 @@ class InvoiceOutController extends ControllerBase {
         "count_export" => $node_invoices["count_export"],
         "company_id" => $node_invoices["company_id"],
         "status" => $node_invoices["status"],
+        "buy_name" => $node_invoices["buy_name"],
         "option_company" => $node_invoices["option_company"],
         "option_status" => $allowed_values,
         "page_size" => $node_invoices["page_size"],

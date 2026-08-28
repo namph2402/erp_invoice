@@ -1,9 +1,47 @@
 <div class="list-invoice d-flex flex-column h-100 min-w-0">
+	{% include "@erp_e_invoice/warehouse-filter.html.twig" %}
+
 	<div class="flex-grow-1 min-h-0 min-w-0 p-2 bg-white">
 		<div class="d-flex flex-column h-100 text-center">
 			<h4 class="text-uppercase fw-bold my-2" id="title-report">
-				{{ "List of warehouse invoices"|t }}
+				{{ "Warehouse stock report"|t }}
 			</h4>
+
+			<div class="small text-muted mb-2">
+				{{ "Report period"|t }}:
+				{% if filter.date.start or filter.date.end %}
+					{{ filter.date.start ? filter.date.start|date("d/m/Y") : "..." }}
+					-
+					{{ filter.date.end ? filter.date.end|date("d/m/Y") : "..." }}
+				{% else %}
+					{{ "Full date"|t }}
+				{% endif %}
+				{# Xem trọn kỳ thì tồn đầu là số đã khai, thu hẹp khoảng ngày thì nó được
+				   tính lại từ lịch sử — người xem cần biết mình đang nhìn số nào. #}
+				{% if not filter.declared %}
+					<span class="text-warning ms-1">
+						({{ "Opening balance calculated from history"|t }})
+					</span>
+				{% endif %}
+			</div>
+
+			{# Kỳ trước bị sửa sau khi kỳ này đã kết chuyển thì số tồn đầu đã khai
+			   không còn khớp tồn cuối kỳ trước, chỉ ra ngay thay vì để kế toán dò. #}
+			{% if filter.differences is not empty %}
+				<div class="alert alert-warning text-start">
+					<strong>{{ "The declared opening balance does not match the closing balance of the previous period."|t }}</strong>
+					<ul class="mb-0">
+						{% for row in filter.differences %}
+							<li>
+								{{ row.name }}:
+								{{ "Declared"|t }} {{ row.declared|number_format(2, ",", ".") }},
+								{{ "Expected"|t }} {{ row.expected|number_format(2, ",", ".") }}
+							</li>
+						{% endfor %}
+					</ul>
+				</div>
+			{% endif %}
+
 			<div class="invoice-toolbar d-flex flex-wrap align-items-center gap-2 mb-2">
 				<select id="invoice-page-size-warehouse" class="form-select form-select-sm invoice-page-size">
 					{% for page_size in filter.option_page_size %}
@@ -12,20 +50,35 @@
 					<option value="0">{{ "All"|t }}</option>
 				</select>
 				<span class="small text-muted text-nowrap invoice-range"></span>
+				<button type="button" class="btn btn-success btn-sm text-nowrap btn-export-excel ms-auto">
+					<i class="bi bi-file-earmark-excel me-1"></i>{{ "Export Excel"|t }}
+				</button>
 			</div>
 
+			{% if data is empty %}
+				<p class="text-muted py-3">{{ "No stock movement in this period."|t }}</p>
+			{% endif %}
+
 			<div class="flex-grow-1 min-h-0 min-w-0 invoice-table-wrapper">
-				<table class="table table-hover table-bordered table-striped invoice-table" data-table-key="warehouse-supplies">
+				<table class="table table-hover table-bordered table-striped invoice-table"
+					data-table-key="warehouse-supplies"
+					data-export-name="{{ "Warehouse stock report"|t }}"
+					data-export-title="{{ "Warehouse stock report"|t }}{% if filter.export.warehouse %} - {{ filter.export.warehouse }}{% endif %}"
+					data-export-period="{{ "Report period"|t }}: {{ filter.export.period }}"
+					data-export-range="{{ filter.export.range }}">
 					<thead class="text-center">
 						<tr>
 							<th class="text-nowrap" data-col-sort="0" data-col-index="1">{{ "Nº"|t }}</th>
 							<th class="w-25">{{ "Title"|t }}</th>
 							<th>{{ "Code"|t }}</th>
-							<th>{{ "Quantity"|t }}</th>
 							<th>{{ "Unit"|t }}</th>
 							<th>{{ "Tax"|t }}</th>
-							<th class="text-nowrap" data-col-sort="0">{{ "List import"|t }}</th>
-							<th class="text-nowrap" data-col-sort="0">{{ "List export"|t }}</th>
+							<th class="text-nowrap">{{ "Opening balance"|t }}</th>
+							<th class="text-nowrap">{{ "Import in period"|t }}</th>
+							<th class="text-nowrap">{{ "Export in period"|t }}</th>
+							<th class="text-nowrap">{{ "Closing balance"|t }}</th>
+							<th class="text-nowrap" data-col-sort="0" data-col-export="0">{{ "List import"|t }}</th>
+							<th class="text-nowrap" data-col-sort="0" data-col-export="0">{{ "List export"|t }}</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -33,31 +86,56 @@
 							<tr>
 								<td class="text-center" data-value="{{ loop.index }}">{{ loop.index }}</td>
 								<td class="text-start">
-									<a class="list-unstyled" href="{{ path('<front>') }}node-uuid/{{ item.uuid }}" target="_blank">{{ item.name }}</a>
+									{% if item.uuid %}
+										<a class="list-unstyled" href="{{ path('<front>') }}node-uuid/{{ item.uuid }}" target="_blank">{{ item.name }}</a>
+									{% else %}
+										<span class="text-muted">{{ item.name }}</span>
+									{% endif %}
 								</td>
 								<td class="text-center">{{ item.code }}</td>
-								<td class="text-end" data-value="{{ item.quantity }}">{{ item.quantity|number_format(0, ",", ".") }}</td>
 								<td class="text-center">{{ item.unit }}</td>
 								<td class="text-center">{{ item.tax }}</td>
+								<td class="text-end" data-value="{{ item.begin }}">{{ item.begin|number_format(0, ",", ".") }}</td>
+								<td class="text-end" data-value="{{ item.import }}">{{ item.import|number_format(0, ",", ".") }}</td>
+								<td class="text-end" data-value="{{ item.export }}">{{ item.export|number_format(0, ",", ".") }}</td>
+								<td class="text-end fw-medium {{ item.end < 0 ? "text-danger" }}" data-value="{{ item.end }}">
+									{{ item.end|number_format(0, ",", ".") }}
+								</td>
 								<td>
-									<a href="{{ path('<front>') }}accountant/e-invoice-detail-import/{{ item.id }}" class="dropdown-item btn use-ajax"
-										data-dialog-type="modal" data-dialog-options="{&quot;width&quot;:&quot;70%&quot;,&quot;title&quot;:&quot;&quot;}">
+									<a href="{{ path('<front>') }}accountant/e-invoice-detail-import/{{ item.id }}{{ filter.query }}" class="dropdown-item btn use-ajax"
+										data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
 										{{ "View"|t }}
 									</a>
 								</td>
 								<td>
-									<a href="{{ path('<front>') }}accountant/e-invoice-detail-export/{{ item.id }}" class="dropdown-item btn use-ajax"
-										data-dialog-type="modal" data-dialog-options="{&quot;width&quot;:&quot;70%&quot;,&quot;title&quot;:&quot;&quot;}">
+									<a href="{{ path('<front>') }}accountant/e-invoice-detail-export/{{ item.id }}{{ filter.query }}" class="dropdown-item btn use-ajax"
+										data-dialog-type="modal" data-dialog-options='{"width":"70%","title":""}'>
 										{{ "View"|t }}
 									</a>
 								</td>
 							</tr>
 						{% endfor %}
 					</tbody>
+					{% if data is not empty %}
+						<tfoot class="fw-bold">
+							<tr>
+								<td></td>
+								<td class="text-start">{{ "Total"|t }}</td>
+								<td></td>
+								<td></td>
+								<td></td>
+								<td class="text-end" data-value="{{ filter.totals.begin }}">{{ filter.totals.begin|number_format(0, ",", ".") }}</td>
+								<td class="text-end" data-value="{{ filter.totals.import }}">{{ filter.totals.import|number_format(0, ",", ".") }}</td>
+								<td class="text-end" data-value="{{ filter.totals.export }}">{{ filter.totals.export|number_format(0, ",", ".") }}</td>
+								<td class="text-end" data-value="{{ filter.totals.end }}">{{ filter.totals.end|number_format(0, ",", ".") }}</td>
+								<td></td>
+								<td></td>
+							</tr>
+						</tfoot>
+					{% endif %}
 				</table>
 			</div>
 
-			{# Phân trang chạy trên trình duyệt, danh sách dòng đã có sẵn trong bảng. #}
 			<nav class="invoice-pagination d-flex justify-content-center mt-2" aria-label="{{ "Pagination"|t }}">
 				<ul class="pagination pagination-sm mb-0 invoice-pages"></ul>
 			</nav>

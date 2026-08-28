@@ -4,7 +4,6 @@ namespace Drupal\erp_e_invoice;
 
 use Drupal\Component\Utility\Crypt;
 use Drupal\Component\Utility\UrlHelper;
-use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
@@ -74,10 +73,8 @@ class InvoiceService {
    *   The key/value factory.
    * @param LoggerChannelFactoryInterface $loggerFactory
    *   The logger channel factory.
-   * @param ConfigFactoryInterface $configFactory
-   *   The config factory.
-   * @param object|null $commonService
-   *   Dịch vụ sinh số hiệu chứng từ dùng chung, có thể vắng mặt.
+   * @param WarehouseService $warehouseService
+   *   Dịch vụ ghi và đọc kho hàng.
    */
   public function __construct(
     protected EntityTypeManagerInterface $entityTypeManager,
@@ -87,8 +84,7 @@ class InvoiceService {
     protected Connection $connection,
     protected KeyValueFactoryInterface $keyValue,
     protected LoggerChannelFactoryInterface $loggerFactory,
-    protected ConfigFactoryInterface $configFactory,
-    protected ?object $commonService = NULL,
+    protected WarehouseService $warehouseService,
   ) {}
 
   /**
@@ -226,17 +222,22 @@ class InvoiceService {
     $vn_tz = new \DateTimeZone('Asia/Ho_Chi_Minh');
     $utc_tz = new \DateTimeZone('UTC');
 
-    $start_date = !empty($request->query->get("start_date"))
-      ? $request->query->get("start_date")
-      : date("Y-m-01");
+    // Người dùng xoá trắng ô ngày để tìm theo tên trên toàn bộ hóa đơn, nên ô
+    // ngày rỗng phải hiểu là bỏ giới hạn. Chỉ lần đầu mở trang (chưa gửi ô ngày
+    // nào) mới lấy mặc định tháng này.
+    $has_date_filter = $request->query->has("start_date") || $request->query->has("end_date");
 
-    $end_date = !empty($request->query->get("end_date"))
-      ? $request->query->get("end_date")
-      : date("Y-m-d");
+    $start_date = $request->query->get("start_date")
+      ?: ($has_date_filter ? NULL : date("Y-m-01"));
+
+    $end_date = $request->query->get("end_date")
+      ?: ($has_date_filter ? NULL : date("Y-m-d"));
 
     $import = $request->query->get("import");
     $export = $request->query->get("export");
     $status = $request->query->get("status") ?? "";
+    $sell_name = $request->query->get("sell_name") ?? "";
+    $buy_name = $request->query->get("buy_name") ?? "";
 
     switch ($request->query->get("search_date")) {
       case 'last_month':
@@ -311,6 +312,14 @@ class InvoiceService {
       }
     }
 
+    if (!empty($sell_name)) {
+      $invoices_query->condition('field_invoice_seller_name', '%' . $sell_name . '%', 'LIKE');
+    }
+
+    if (!empty($buy_name)) {
+      $invoices_query->condition('field_invoice_buyer_name', '%' . $buy_name . '%', 'LIKE');
+    }
+
     $invoice_ids = $invoices_query->execute();
     $list_invoices = $invoiceManage->loadMultiple($invoice_ids);
 
@@ -348,6 +357,8 @@ class InvoiceService {
     return [
       "company_id" => $company_id,
       "status" => $status,
+      "sell_name" => $sell_name,
+      "buy_name" => $buy_name,
       "option_company" => $option_company,
       "invoices" => $list_invoices,
       "count_import" => $count_import,
@@ -424,8 +435,14 @@ class InvoiceService {
       ->getStorage($type)
       ->load($id);
 
-    if (!$entity || !$entity->hasField($field)) {
+    if (!$entity) {
       return NULL;
+    }
+
+    // Dịch vụ, tài sản... không có trường tên gọi khác nhưng vẫn là vật tư hợp
+    // lệ: trả id để dòng hóa đơn được ghi kho, chỉ bỏ phần lưu tên gọi khác.
+    if (!$entity->hasField($field)) {
+      return $entity->id();
     }
 
     foreach ($entity->get($field)->getValue() as $alias) {
@@ -506,6 +523,13 @@ class InvoiceService {
     /** @var \Drupal\eck\Entity\EckEntity $supply */
     foreach ($supplies as $supply) {
       $name_map[$supply->label()] = $supply->id();
+
+      // Chỉ bundle "supplies" có trường tên gọi khác, đọc thẳng ở bundle khác
+      // (dịch vụ, tài sản) sẽ ném ngoại lệ và làm hỏng cả lượt kéo hóa đơn.
+      if (!$supply->hasField("field_sup_alias_names")) {
+        continue;
+      }
+
       foreach ($supply->get("field_sup_alias_names") as $alias) {
         $name_map[$alias->value] = $supply->id();
       }
@@ -563,16 +587,52 @@ class InvoiceService {
   }
 
   /**
-   * Lấy thông tin kho hàng theo công ty.
+   * Tìm nhiều nhà cung cấp / khách hàng theo tên trong một truy vấn.
+   *
+   * Dùng cho luồng xử lý nhiều hóa đơn cùng lúc: mỗi hóa đơn một tên đối tác
+   * nên tra từng tên sẽ tốn đúng bằng số hóa đơn truy vấn.
+   *
+   * @param array $names
+   *   Danh sách tên đối tác đọc từ hóa đơn.
+   *
+   * @return array
+   *   Tên (kể cả tên gọi khác) ánh xạ sang id khách hàng.
    */
-  public function findWarehouse() {
-    $taxonomy_storage = $this->entityTypeManager->getStorage("taxonomy_term");
-    $terms = $taxonomy_storage->loadByProperties([
-      "vid" => "warehouse",
-      "name" => "Tổng hóa đơn điện tử",
-    ]);
-    $term = reset($terms);
-    return !empty($term) ? $term->id() : NULL;
+  public function findSuppliers(array $names): array {
+    $names = array_values(array_filter($names));
+
+    if (empty($names)) {
+      return [];
+    }
+
+    $name_map = [];
+    $customer_storage = $this->entityTypeManager->getStorage("crm");
+    $query = $customer_storage->getQuery()->accessCheck(TRUE);
+
+    $or = $query->orConditionGroup()
+      ->condition("title", $names, "IN")
+      ->condition("field_customer_alias_names", $names, "IN");
+
+    $query->condition("type", "customers");
+    $query->condition($or);
+    $ids = $query->execute();
+
+    $customers = $customer_storage->loadMultiple($ids);
+
+    /** @var \Drupal\eck\Entity\EckEntity $customer */
+    foreach ($customers as $customer) {
+      $name_map[$customer->label()] = $customer->id();
+
+      if (!$customer->hasField("field_customer_alias_names")) {
+        continue;
+      }
+
+      foreach ($customer->get("field_customer_alias_names") as $alias) {
+        $name_map[$alias->value] = $customer->id();
+      }
+    }
+
+    return $name_map;
   }
 
   /**
@@ -604,35 +664,43 @@ class InvoiceService {
   }
 
   /**
-   * Cấu hình phiếu kho theo chiều nhập / xuất.
+   * Kho hàng mặc định để ghi hóa đơn của một công ty.
    *
-   * Hai luồng chỉ khác nhau ở bundle phiếu và tên vài trường, phần còn lại
-   * (đối chiếu vật tư, cộng trừ tồn kho, ghi lịch sử) dùng chung.
+   * Chỉ trả về kho khi công ty có đúng một kho: nhiều kho thì không đoán thay
+   * kế toán được, để form đối chiếu hỏi.
+   *
+   * @param string|int|null $company_id
+   *   Term công ty của hóa đơn.
+   *
+   * @return string|int|null
+   *   Id kho hàng, NULL khi chưa có kho hoặc có nhiều kho.
+   */
+  public function findWarehouse(string|int|null $company_id = NULL) {
+    $warehouses = $this->warehouseService->loadWarehouses(
+      $company_id ? [$company_id] : []
+    );
+
+    if (count($warehouses) !== 1) {
+      return NULL;
+    }
+
+    return array_key_first($warehouses);
+  }
+
+  /**
+   * Cấu hình luồng nhập / xuất.
+   *
+   * Hai chiều chỉ khác nhau ở cờ đánh dấu trên hóa đơn và tên bên đối tác,
+   * phần ghi kho dùng chung qua WarehouseService.
    */
   private const DOCUMENT_SETTINGS = [
     "import" => [
-      "node_bundle" => "import_warehouse",
-      "status_field" => "field_iw_status",
-      "type_field" => "field_iw_type",
-      "code_field" => "field_iw_code",
-      "code_pattern" => "pattern_import_warehouse",
-      "quantity_field" => "field_wc_quantity_import",
       "invoice_field" => "field_invoice_import",
       "contact_field" => "field_invoice_seller_name",
-      "history_bundle" => "import_history",
-      "history_field" => "field_sup_import_history",
     ],
     "export" => [
-      "node_bundle" => "warehouse_storage_history",
-      "status_field" => "field_wsh_voucher_status",
-      "type_field" => "field_wsh_type",
-      "code_field" => "field_wsh_number",
-      "code_pattern" => "pattern_warehouse_storage_history",
-      "quantity_field" => "field_wc_quantity_export",
       "invoice_field" => "field_invoice_export",
       "contact_field" => "field_invoice_buyer_name",
-      "history_bundle" => "history_export",
-      "history_field" => "field_sup_export_history",
     ],
   ];
 
@@ -644,28 +712,47 @@ class InvoiceService {
   /**
    * Nhập hàng hóa đơn.
    *
+   * @param InvoiceInterface $invoice
+   *   Hóa đơn nguồn.
+   * @param string|int|null $contact_id
+   *   Nhà cung cấp.
+   * @param string|int $warehouse_id
+   *   Kho hàng (entity warehouse_invoice).
+   * @param string|null $date
+   *   Ngày ghi sổ, mặc định là ngày hóa đơn.
+   *
    * @return bool
    *   TRUE khi đã tạo phiếu nhập, FALSE khi không có gì để nhập hoặc lỗi.
    */
-  public function createImport(InvoiceInterface $invoice, string|int $contact_id, string|int $warehouse_id, array $units): bool {
-    return $this->createDocument("import", $invoice, $contact_id, $warehouse_id, $units);
+  public function createImport(InvoiceInterface $invoice, string|int|null $contact_id, string|int $warehouse_id, ?string $date = NULL): bool {
+    return $this->createDocument("import", $invoice, $contact_id, $warehouse_id, $date);
   }
 
   /**
    * Xuất hàng hóa đơn.
    *
+   * @param InvoiceInterface $invoice
+   *   Hóa đơn nguồn.
+   * @param string|int|null $contact_id
+   *   Khách hàng.
+   * @param string|int $warehouse_id
+   *   Kho hàng (entity warehouse_invoice).
+   * @param string|null $date
+   *   Ngày ghi sổ, mặc định là ngày hóa đơn.
+   *
    * @return bool
    *   TRUE khi đã tạo phiếu xuất, FALSE khi không có gì để xuất hoặc lỗi.
    */
-  public function createExport(InvoiceInterface $invoice, string|int $contact_id, string|int $warehouse_id, array $units): bool {
-    return $this->createDocument("export", $invoice, $contact_id, $warehouse_id, $units);
+  public function createExport(InvoiceInterface $invoice, string|int|null $contact_id, string|int $warehouse_id, ?string $date = NULL): bool {
+    return $this->createDocument("export", $invoice, $contact_id, $warehouse_id, $date);
   }
 
   /**
    * Đối chiếu vật tư rồi tạo phiếu nhập / xuất cho hóa đơn vừa kéo về.
    *
    * Dùng cho luồng tự động: chỉ tạo phiếu khi mọi dòng hóa đơn đều khớp được
-   * vật tư và tìm được đối tác, còn lại để kế toán xử lý tay trên form.
+   * vật tư, tìm được đối tác và công ty chỉ có một kho, còn lại để kế toán xử
+   * lý tay trên form đối chiếu.
    *
    * @param InvoiceInterface $invoice
    *   Hóa đơn cần xử lý.
@@ -709,13 +796,25 @@ class InvoiceService {
       return FALSE;
     }
 
-    $warehouse_id = $this->findWarehouse();
+    $warehouse_id = $this->findWarehouse($invoice->get("field_invoice_company")->target_id);
+
+    // Chưa có kho hoặc có nhiều kho thì phải để kế toán chọn, không tự ghi.
     if (empty($warehouse_id)) {
-      $this->messenger->addError($this->t("Not found e-invoice warehouse"));
       return FALSE;
     }
 
-    return $this->createDocument($type, $invoice, $contact_id, $warehouse_id, $this->loadTerm());
+    // Kỳ đã khoá thì phiếu ghi thêm sẽ làm lệch tồn đầu kỳ sau, đây là việc kế
+    // toán phải quyết chứ không để luồng tự động âm thầm ghi vào.
+    $period = $this->warehouseService->findPeriod(
+      $warehouse_id,
+      $this->warehouseService->invoiceDate($invoice)
+    );
+
+    if ($period && $this->warehouseService->isPeriodClosed($period)) {
+      return FALSE;
+    }
+
+    return $this->createDocument($type, $invoice, $contact_id, $warehouse_id);
   }
 
   /**
@@ -725,17 +824,17 @@ class InvoiceService {
    *   "import" hoặc "export".
    * @param InvoiceInterface $invoice
    *   Hóa đơn nguồn.
-   * @param string|int $contact_id
+   * @param string|int|null $contact_id
    *   Nhà cung cấp (hóa đơn vào) hoặc khách hàng (hóa đơn ra).
    * @param string|int $warehouse_id
-   *   Kho hàng điện tử.
-   * @param array $units
-   *   Bản đồ tên đơn vị tính đã hạ chữ thường sang term id.
+   *   Kho hàng (entity warehouse_invoice).
+   * @param string|null $date
+   *   Ngày ghi sổ, mặc định là ngày hóa đơn.
    *
    * @return bool
    *   TRUE khi phiếu được tạo.
    */
-  private function createDocument(string $type, InvoiceInterface $invoice, string|int $contact_id, string|int $warehouse_id, array $units): bool {
+  private function createDocument(string $type, InvoiceInterface $invoice, string|int|null $contact_id, string|int $warehouse_id, ?string $date = NULL): bool {
     $settings = self::DOCUMENT_SETTINGS[$type] ?? NULL;
 
     if ($settings === NULL) {
@@ -743,7 +842,9 @@ class InvoiceService {
     }
 
     // Chốt chặn cuối: hóa đơn đã nhập / xuất rồi thì không ghi kho lần nữa.
-    if ($this->isHandled($invoice, $settings["invoice_field"])) {
+    // Cờ trên hóa đơn có thể bị sửa tay nên kiểm tra thêm cả phiếu đã ghi.
+    if ($this->isHandled($invoice, $settings["invoice_field"])
+      || $this->warehouseService->hasTransaction($invoice, $type)) {
       $this->loggerFactory->get("erp_e_invoice")->warning(
         "Hóa đơn @id đã được xử lý kho, bỏ qua yêu cầu tạo phiếu.",
         ["@id" => $invoice->id()]
@@ -761,98 +862,26 @@ class InvoiceService {
       ->loadMultiple(array_unique(array_column($lines, "item_id")));
 
     // Vật tư đã bị xoá sau khi đối chiếu thì bỏ dòng đó ra khỏi phiếu.
-    $lines = array_filter($lines, fn (array $item) => isset($supplies[$item["item_id"]]));
+    $lines = array_filter($lines, static fn (array $item) => isset($supplies[$item["item_id"]]));
     if (empty($lines)) {
       return FALSE;
     }
 
-    $transaction = $this->connection->startTransaction();
+    $document = $this->warehouseService->createInvoiceTransaction(
+      $invoice,
+      $type,
+      $warehouse_id,
+      $contact_id,
+      $lines,
+      $date
+    );
 
-    try {
-      $date = date("Y-m-d");
-      $paragraphs = [];
-      $quantities = [];
-
-      /** @var \Drupal\node\NodeInterface $node */
-      $node = $this->entityTypeManager
-        ->getStorage("node")
-        ->create([
-          "type" => $settings["node_bundle"],
-          "title" => ($type === "import" ? $this->t("Import goods for") : $this->t("Export goods for"))
-            . " [" . $this->t("Invoice") . " " . $invoice->get("field_invoice_no")->value . "]",
-          "field_wsh_client" => $contact_id,
-          "field_wsh_export" => $warehouse_id,
-          "field_wsh_total_tax" => $this->amount($invoice, "field_invoice_vat_amount"),
-          "field_wsh_total_discount" => $this->amount($invoice, "field_invoice_discount_amount"),
-          // Quy ước sẵn có của hệ thống: excl_tax giữ tổng thanh toán, còn
-          // incl_tax giữ tiền hàng trước thuế.
-          "field_wsh_total_excl_tax" => $this->amount($invoice, "field_invoice_total_amount"),
-          "field_wsh_total_incl_tax" => $this->amount($invoice, "field_invoice_amount_without_vat"),
-          $settings["status_field"] => "complete",
-          $settings["type_field"] => "einvoice",
-          "field_public" => FALSE,
-          "field_company" => $invoice->get("field_invoice_company")->target_id,
-          "field_e_invoice" => $invoice->id(),
-        ]);
-
-      foreach ($lines as $item) {
-        $unit = !empty($item["item_unit"]) ? mb_strtolower($item["item_unit"], "UTF-8") : NULL;
-        $quantity = (float) ($item["item_quantity"] ?? 0);
-
-        /** @var \Drupal\paragraphs\Entity\Paragraph $content */
-        $content = $this->entityTypeManager
-          ->getStorage("paragraph")
-          ->create([
-            "type" => "warehouse_content",
-            "field_wc_code" => $item["item_code"] ?? NULL,
-            "field_wc_supplies" => $item["item_id"],
-            "field_wc_unit" => $units[$unit] ?? NULL,
-            $settings["quantity_field"] => $quantity,
-            "field_wc_price" => $item["item_price"] ?? 0,
-            // Tên trường ngược nghĩa nhưng đây là quy ước đang dùng chung:
-            // excl_tax là tiền thuế, incl_tax là thành tiền trước thuế.
-            "field_wc_excl_tax" => $item["item_vat_amount"] ?? 0,
-            "field_wc_incl_tax" => $item["item_amount_without_vat"] ?? 0,
-          ]);
-
-        $content->save();
-
-        $paragraphs[] = [
-          "target_id" => $content->id(),
-          "target_revision_id" => $content->getRevisionId(),
-        ];
-
-        // Một vật tư có thể nằm trên nhiều dòng hóa đơn, cộng dồn trước rồi
-        // mới ghi kho một lần để không tạo trùng bản ghi tồn kho.
-        $quantities[$item["item_id"]] = ($quantities[$item["item_id"]] ?? 0) + $quantity;
-      }
-
-      $node->set("field_wsh_content_storage", $paragraphs);
-      $node->save();
-
-      $this->setDocumentCode($node, $settings["code_field"], $settings["code_pattern"]);
-
-      foreach ($lines as $item) {
-        $this->appendHistory($supplies[$item["item_id"]], $type, $invoice->id(), $node->id(), $warehouse_id, $item, $date);
-      }
-
-      foreach ($quantities as $supply_id => $quantity) {
-        $this->updateWarehouseQuantity($supplies[$supply_id], $warehouse_id, $quantity, $type);
-      }
-
-      // Mỗi vật tư chỉ lưu một lần sau khi đã gắn đủ tồn kho và lịch sử.
-      foreach ($supplies as $supply) {
-        $supply->save();
-      }
-
-      $invoice->set($settings["invoice_field"], 1);
-      $invoice->save();
-    }
-    catch (\Exception $e) {
-      $transaction->rollBack();
-      $this->loggerFactory->get("erp_e_invoice")->error($e->getMessage());
+    if (empty($document)) {
       return FALSE;
     }
+
+    $invoice->set($settings["invoice_field"], 1);
+    $invoice->save();
 
     return TRUE;
   }
@@ -890,132 +919,46 @@ class InvoiceService {
     return in_array((int) $invoice->get($field)->value, [1, 2], TRUE);
   }
 
-  /**
-   * Đọc giá trị tiền của hóa đơn, trả 0 khi bundle không có trường.
-   */
-  private function amount(InvoiceInterface $invoice, string $field): float {
-    return $invoice->hasField($field)
-      ? (float) ($invoice->get($field)->value ?? 0)
-      : 0;
-  }
 
   /**
-   * Sinh số phiếu theo mẫu dùng chung của hệ thống kho.
+   * Công ty của một người dùng, gồm cả công ty kiêm nhiệm.
    *
-   * Hàm đánh số của module kho chỉ chạy khi lưu phiếu bằng form nên phiếu tạo
-   * từ hóa đơn sẽ trống số nếu không gọi lại ở đây.
+   * @param \Drupal\user\UserInterface $user
+   *   Người dùng cần đọc.
+   *
+   * @return array
+   *   Id công ty ánh xạ sang tên.
    */
-  private function setDocumentCode($node, string $field, string $pattern_key): void {
-    if (!$node->hasField($field) || !$node->get($field)->isEmpty()) {
-      return;
+  public function userCompanies($user): array {
+    $companies = $this->getCurrentPosition($user);
+    $company = $user->get("field_user_company")->entity;
+
+    if ($company) {
+      $companies[$company->id()] = $company->label();
     }
 
-    if (!$this->commonService) {
-      return;
-    }
-
-    $patterns = $this->configFactory->get("erp_common.link_settings_overall");
-    $pattern = $patterns->get($pattern_key) ?: $patterns->get("pattern_overall");
-
-    if (empty($pattern)) {
-      return;
-    }
-
-    $node->set($field, $this->commonService->generateTitleOverall($pattern, $node, $field));
-    $node->save();
+    return $companies;
   }
 
   /**
-   * Cộng / trừ tồn kho của vật tư trong kho hóa đơn điện tử.
+   * Mở rộng danh sách công ty xuống các công ty con.
    *
-   * Không tự lưu vật tư: bên gọi lưu một lần sau khi ghi xong mọi thay đổi.
+   * @param array $company_ids
+   *   Id công ty gốc.
+   *
+   * @return array
+   *   Id công ty gốc và mọi công ty con.
    */
-  private function updateWarehouseQuantity($supplie, $warehouse, $quantity, $type): void {
-    $paragraph_storage = $this->entityTypeManager->getStorage("paragraph");
+  public function companyScope(array $company_ids): array {
+    $storage = $this->entityTypeManager->getStorage("taxonomy_term");
+    $scope = [];
 
-    // Bản ghi tồn kho là dữ liệu nội bộ, không lọc theo quyền của người dùng
-    // đang thao tác — lọc quyền sẽ tạo ra bản ghi tồn kho trùng.
-    $ids = $paragraph_storage->getQuery()
-      ->condition("type", "warehouse")
-      ->condition("parent_type", $supplie->getEntityTypeId())
-      ->condition("parent_id", $supplie->id())
-      ->condition("field_warehouse", $warehouse)
-      ->accessCheck(FALSE)
-      ->range(0, 1)
-      ->execute();
-
-    $change = $type === "import" ? $quantity : -$quantity;
-
-    if (!empty($ids)) {
-      /** @var \Drupal\paragraphs\Entity\Paragraph $para_warehouse */
-      $para_warehouse = $paragraph_storage->load(reset($ids));
-      $current = (float) ($para_warehouse->get("field_warehouse_quantity")->value ?? 0);
-      $para_warehouse->set("field_warehouse_quantity", $current + $change);
-      $para_warehouse->save();
-
-      return;
+    foreach (array_filter($company_ids) as $company_id) {
+      $scope += $this->getDescendantTids($company_id, $storage);
     }
 
-    /** @var \Drupal\paragraphs\Entity\Paragraph $para_warehouse */
-    $para_warehouse = $paragraph_storage->create([
-      "type" => "warehouse",
-      "field_warehouse" => $warehouse,
-      "field_warehouse_quantity" => $change,
-    ]);
-    $para_warehouse->save();
-
-    $supplie->get("field_sup_list_warehouse")->appendItem([
-      "target_id" => $warehouse,
-    ]);
-    $supplie->get("field_sup_warehouse")->appendItem([
-      "target_id" => $para_warehouse->id(),
-      "target_revision_id" => $para_warehouse->getRevisionId(),
-    ]);
+    return $scope;
   }
-
-  /**
-   * Ghi lịch sử nhập / xuất kho cho vật tư.
-   *
-   * Không tự lưu vật tư: bên gọi lưu một lần sau khi ghi xong mọi thay đổi.
-   */
-  private function appendHistory($supplie, string $type, $invoice, $document, $warehouse, array $item, string $date): void {
-    $settings = self::DOCUMENT_SETTINGS[$type];
-
-    $values = $type === "import"
-      ? [
-        "field_ih_invoice" => $invoice,
-        "field_ih_receipt" => $document,
-        "field_ih_warehouse" => $warehouse,
-        "field_ih_quantity" => $item["item_quantity"] ?? 0,
-        "field_ih_quantity_remaining" => $item["item_quantity"] ?? 0,
-        "field_ih_purchase_price" => $item["item_price"] ?? 0,
-        "field_ih_received_date" => $date,
-      ]
-      : [
-        "field_he_invoice" => $invoice,
-        "field_he_export" => $document,
-        "field_he_warehouse" => $warehouse,
-        "field_he_output_quantity" => $item["item_quantity"] ?? 0,
-        "field_he_price" => $item["item_price"] ?? 0,
-        "field_he_date_export" => $date,
-      ];
-
-    /** @var \Drupal\paragraphs\Entity\Paragraph $history */
-    $history = $this->entityTypeManager
-      ->getStorage("paragraph")
-      ->create([
-        "type" => $settings["history_bundle"],
-        "field_document_type" => "e_invoice",
-      ] + $values);
-
-    $history->save();
-
-    $supplie->get($settings["history_field"])->appendItem([
-      "target_id" => $history->id(),
-      "target_revision_id" => $history->getRevisionId(),
-    ]);
-  }
-
 
   /**
    * Danh sách công ty cha con.

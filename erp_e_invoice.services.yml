@@ -1,4 +1,11 @@
 services:
+  erp_e_invoice.warehouse_service:
+    class: Drupal\erp_e_invoice\WarehouseService
+    arguments:
+      - '@entity_type.manager'
+      - '@database'
+      - '@logger.factory'
+
   erp_e_invoice.invoice_service:
     class: Drupal\erp_e_invoice\InvoiceService
     arguments:
@@ -9,6 +16,4 @@ services:
       - '@database'
       - '@keyvalue'
       - '@logger.factory'
-      - '@config.factory'
-      - '@?erp_common.erp_common_service'
-
+      - '@erp_e_invoice.warehouse_service'
